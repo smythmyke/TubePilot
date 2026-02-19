@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "TubePilot",
+  "version": "1.0.0",
+  "description": "AI-powered YouTube metadata generator. Generate SEO-optimized titles, descriptions, and tags for your videos.",
+  "permissions": ["activeTab", "storage", "identity"],
+  "host_permissions": [
+    "https://business-search-api-815700675676.us-central1.run.app/*",
+    "https://www.googleapis.com/*"
+  ],
+  "oauth2": {
+    "client_id": "PLACEHOLDER_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile"
+    ]
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_popup": "popup/popup.html",
+    "default_title": "TubePilot"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://studio.youtube.com/*"
+      ],
+      "js": ["config.js", "content/youtube-studio.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/fab-icon.png"],
+      "matches": ["https://studio.youtube.com/*"]
+    }
+  ]
+}
