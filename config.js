@@ -26,7 +26,8 @@ const CONFIG = {
   MAX_TITLE_LENGTH: 100,
   MAX_DESCRIPTION_LENGTH: 5000,
   MAX_TAG_LENGTH: 500, // total chars for all tags combined
-  MAX_TAGS_COUNT: 15,
+  MAX_SINGLE_TAG_LENGTH: 30, // per-tag character limit
+  MAX_HASHTAGS: 15, // max hashtags in description before YouTube ignores them
 
   // YouTube Data API
   YOUTUBE_API_BASE: 'https://www.googleapis.com/youtube/v3',

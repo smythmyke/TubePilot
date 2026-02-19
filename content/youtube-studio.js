@@ -223,7 +223,7 @@
             <div class="tp-file-picker" id="tp-file-picker">
               <span class="tp-file-picker-label">Click or drag a video file</span>
               <span class="tp-file-picker-name" id="tp-file-name"></span>
-              <input type="file" id="tp-file-input" accept="video/*">
+              <input type="file" id="tp-file-input" accept=".mov,.mpeg4,.mp4,.avi,.wmv,.mpegps,.flv,.3gpp,.webm,.mkv,video/*">
             </div>
             <div class="tp-visibility-row">
               <span>Visibility:</span>
@@ -392,12 +392,18 @@
       rdescCount.textContent = rdescInput.value.length;
     });
 
-    // Tags info
+    // Tags info with YouTube limit validation
     const tagsInput = panel.querySelector('#tp-result-tags');
     const tagsInfo = panel.querySelector('#tp-tags-info');
     tagsInput.addEventListener('input', () => {
       const tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
-      tagsInfo.textContent = tags.length + ' tag' + (tags.length !== 1 ? 's' : '');
+      const totalChars = tags.reduce((sum, t) => sum + t.length, 0);
+      const overLength = tags.filter(t => t.length > CONFIG.MAX_SINGLE_TAG_LENGTH);
+      let info = tags.length + ' tag' + (tags.length !== 1 ? 's' : '') + ' · ' + totalChars + '/500 chars';
+      if (totalChars > CONFIG.MAX_TAG_LENGTH) info += ' (over limit!)';
+      if (overLength.length > 0) info += ' · ' + overLength.length + ' tag(s) over 30 chars';
+      tagsInfo.textContent = info;
+      tagsInfo.style.color = (totalChars > CONFIG.MAX_TAG_LENGTH || overLength.length > 0) ? '#ff4444' : '';
     });
 
     // Generate
@@ -510,8 +516,15 @@
     filePicker.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', () => {
       if (fileInput.files.length > 0) {
-        selectedFile = fileInput.files[0];
-        fileName.textContent = selectedFile.name;
+        const file = fileInput.files[0];
+        const error = validateVideoFile(file);
+        if (error) {
+          showToast(error, true);
+          fileInput.value = '';
+          return;
+        }
+        selectedFile = file;
+        fileName.textContent = file.name + ' (' + formatFileSize(file.size) + ')';
         filePicker.classList.add('tp-file-selected');
       }
     });
@@ -529,13 +542,14 @@
       filePicker.style.borderColor = '';
       if (e.dataTransfer.files.length > 0) {
         const file = e.dataTransfer.files[0];
-        if (file.type.startsWith('video/')) {
+        const error = validateVideoFile(file);
+        if (!error) {
           selectedFile = file;
-          fileName.textContent = file.name;
+          fileName.textContent = file.name + ' (' + formatFileSize(file.size) + ')';
           filePicker.classList.add('tp-file-selected');
           fileInput.files = e.dataTransfer.files;
         } else {
-          showToast('Please select a video file', true);
+          showToast(error, true);
         }
       }
     });
@@ -719,7 +733,10 @@
     const tagsInput = panel.querySelector('#tp-result-tags');
     const tags = data.tags || [];
     tagsInput.value = tags.join(', ');
-    panel.querySelector('#tp-tags-info').textContent = tags.length + ' tag' + (tags.length !== 1 ? 's' : '');
+    const totalChars = tags.reduce((sum, t) => sum + t.length, 0);
+    const tagsInfoEl = panel.querySelector('#tp-tags-info');
+    tagsInfoEl.textContent = tags.length + ' tag' + (tags.length !== 1 ? 's' : '') + ' · ' + totalChars + '/500 chars';
+    tagsInfoEl.style.color = totalChars > CONFIG.MAX_TAG_LENGTH ? '#ff4444' : '';
 
     // Category
     const categoryEl = panel.querySelector('#tp-result-category');
@@ -785,7 +802,7 @@
 
     const tagsStr = panel.querySelector('#tp-result-tags').value;
     if (tagsStr) {
-      const tags = tagsStr.split(',').map(t => t.trim()).filter(Boolean);
+      const tags = sanitizeTags(tagsStr);
       const filled = await fillTags(tags);
       if (filled) filledCount++;
     }
@@ -810,11 +827,11 @@
     const categoryEl = panel.querySelector('#tp-result-category');
     const categoryId = categoryEl.dataset.categoryId || null;
 
-    const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : null;
+    const tags = tagsStr ? sanitizeTags(tagsStr) : null;
 
     const metadata = {};
-    if (title) metadata.title = title;
-    if (description) metadata.description = description;
+    if (title) metadata.title = title.slice(0, CONFIG.MAX_TITLE_LENGTH);
+    if (description) metadata.description = description.slice(0, CONFIG.MAX_DESCRIPTION_LENGTH);
     if (tags && tags.length > 0) metadata.tags = tags;
     if (categoryId) metadata.categoryId = categoryId;
 
@@ -851,12 +868,12 @@
 
   // --- Collect metadata from result fields ---
   function collectMetadata() {
-    const title = panel.querySelector('#tp-result-title').value;
-    const description = panel.querySelector('#tp-result-desc').value;
+    const title = panel.querySelector('#tp-result-title').value.slice(0, CONFIG.MAX_TITLE_LENGTH);
+    const description = panel.querySelector('#tp-result-desc').value.slice(0, CONFIG.MAX_DESCRIPTION_LENGTH);
     const tagsStr = panel.querySelector('#tp-result-tags').value;
     const categoryEl = panel.querySelector('#tp-result-category');
     const categoryId = categoryEl.dataset.categoryId || null;
-    const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+    const tags = sanitizeTags(tagsStr);
     return { title, description, tags, categoryId };
   }
 
@@ -1306,6 +1323,56 @@
   // --- Utility ---
   function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // --- Video File Validation ---
+  const YOUTUBE_ALLOWED_EXTENSIONS = ['mov', 'mpeg4', 'mp4', 'avi', 'wmv', 'mpegps', 'flv', '3gpp', 'webm', 'mkv', 'mpeg', 'mpg', 'm4v'];
+  const MAX_FILE_SIZE_GB = 256;
+  const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_GB * 1024 * 1024 * 1024;
+
+  function validateVideoFile(file) {
+    if (!file) return 'No file selected';
+
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!YOUTUBE_ALLOWED_EXTENSIONS.includes(ext)) {
+      return `Unsupported format (.${ext}). YouTube accepts: ${YOUTUBE_ALLOWED_EXTENSIONS.join(', ')}`;
+    }
+
+    if (!file.type.startsWith('video/') && file.type !== '') {
+      return 'This does not appear to be a video file';
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(1);
+      return `File too large (${sizeGB} GB). YouTube max is ${MAX_FILE_SIZE_GB} GB`;
+    }
+
+    if (file.size === 0) {
+      return 'File is empty (0 bytes)';
+    }
+
+    return null;
+  }
+
+  // Enforce YouTube tag limits: 30 chars each, 500 chars total
+  function sanitizeTags(tagsStr) {
+    const raw = tagsStr.split(',').map(t => t.replace(/[<>]/g, '').trim()).filter(Boolean);
+    const tags = [];
+    let total = 0;
+    for (const tag of raw) {
+      const trimmed = tag.slice(0, CONFIG.MAX_SINGLE_TAG_LENGTH);
+      if (total + trimmed.length > CONFIG.MAX_TAG_LENGTH) break;
+      total += trimmed.length;
+      tags.push(trimmed);
+    }
+    return tags;
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(0) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return bytes + ' B';
   }
 
   // --- Init ---
