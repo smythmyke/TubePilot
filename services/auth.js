@@ -31,35 +31,47 @@ class AuthService {
   }
 
   async signIn() {
+    console.log('[TubePilot Auth] signIn() started');
+
     // Step 1: Get Google OAuth token via chrome.identity
+    console.log('[TubePilot Auth] Step 1: Requesting token via chrome.identity.getAuthToken...');
     const token = await new Promise((resolve, reject) => {
       chrome.identity.getAuthToken({ interactive: true }, (token) => {
         if (chrome.runtime.lastError) {
+          console.error('[TubePilot Auth] Step 1 FAILED:', chrome.runtime.lastError.message);
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
+        console.log('[TubePilot Auth] Step 1 OK: got token', token ? token.substring(0, 10) + '...' : 'null');
         resolve(token);
       });
     });
 
     // Step 2: Get user profile from Google
+    console.log('[TubePilot Auth] Step 2: Fetching userinfo from Google...');
     const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${token}` }
     });
 
+    console.log('[TubePilot Auth] Step 2 response status:', userInfoResponse.status);
     if (!userInfoResponse.ok) {
+      const errText = await userInfoResponse.text();
+      console.error('[TubePilot Auth] Step 2 FAILED:', errText);
       throw new Error(`Failed to get user info from Google (${userInfoResponse.status})`);
     }
 
     const userInfo = await userInfoResponse.json();
+    console.log('[TubePilot Auth] Step 2 OK: user =', userInfo.email);
 
     // Step 3: Register/authenticate with backend
+    // Note: Do NOT send X-Extension-Id here — the backend middleware blocks
+    // unauthenticated extension requests. After sign-in, the gtp_ session token
+    // will be used for subsequent requests (which bypasses the extension check).
+    console.log('[TubePilot Auth] Step 3: Authenticating with backend...', AUTH_API_BASE + '/api/auth/google');
     const authResponse = await fetch(`${AUTH_API_BASE}/api/auth/google`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'X-Extension-Id': chrome.runtime.id,
-        'X-Extension-Name': 'TubePilot'
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         googleToken: token,
@@ -69,11 +81,15 @@ class AuthService {
       })
     });
 
+    console.log('[TubePilot Auth] Step 3 response status:', authResponse.status);
     if (!authResponse.ok) {
+      const errText = await authResponse.text();
+      console.error('[TubePilot Auth] Step 3 FAILED:', errText);
       throw new Error(`Failed to authenticate with backend (${authResponse.status})`);
     }
 
     const authData = await authResponse.json();
+    console.log('[TubePilot Auth] Step 3 OK: token received =', !!authData.token, 'isAdmin =', authData.isAdmin);
 
     this.user = {
       email: userInfo.email,
@@ -88,6 +104,7 @@ class AuthService {
       authToken: authData.token || token
     });
 
+    console.log('[TubePilot Auth] signIn() complete for', this.user.email);
     this.notifyListeners(this.user);
     return this.user;
   }

@@ -9,7 +9,7 @@
     "https://www.googleapis.com/*"
   ],
   "oauth2": {
-    "client_id": "PLACEHOLDER_OAUTH_CLIENT_ID.apps.googleusercontent.com",
+    "client_id": "815700675676-0pq07d55g7nrvlghroislq2lrvvcbrso.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile"
@@ -47,7 +47,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/fab-icon.png"],
+      "resources": ["icons/icon48.png", "icons/icon128.png"],
       "matches": ["https://studio.youtube.com/*"]
     }
   ]

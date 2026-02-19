@@ -38,5 +38,64 @@ const CONFIG = {
     DOM: 'dom',
     API: 'api',
     API_WITH_DOM_FALLBACK: 'api_with_dom_fallback'
+  },
+
+  // Upload automation
+  VISIBILITY_KEY: 'tubepilot_visibility',
+  VISIBILITY: {
+    PRIVATE: 'PRIVATE',
+    UNLISTED: 'UNLISTED',
+    PUBLIC: 'PUBLIC'
+  },
+
+  // Made for Kids
+  KIDS_KEY: 'tubepilot_kids',
+
+  // Upload wizard DOM selectors
+  SELECTORS: {
+    // Dashboard
+    CREATE_BUTTON: 'ytcp-button.ytcpAppHeaderCreateIcon',
+    UPLOAD_MENU_ITEM: 'tp-yt-paper-item[test-id="upload"]',
+
+    // Upload dialog
+    UPLOAD_DIALOG: 'ytcp-uploads-dialog',
+    SCROLLABLE_CONTENT: '#scrollable-content',
+
+    // Details step
+    TITLE_TEXTAREA: '#title-textarea',
+    DESCRIPTION_TEXTAREA: '#description-textarea',
+    TOGGLE_BUTTON: '#toggle-button',
+    CHIP_BAR_INPUT: 'ytcp-chip-bar input',
+
+    // Navigation
+    NEXT_BUTTON: '#next-button',
+    DONE_BUTTON: '#done-button',
+    BACK_BUTTON: '#back-button',
+
+    // Stepper
+    STEP_DETAILS: '#step-badge-0',
+    STEP_ELEMENTS: '#step-badge-1',
+    STEP_CHECKS: '#step-badge-2',
+    STEP_VISIBILITY: '#step-badge-3',
+
+    // Checks
+    CHECK_SUCCESS_ICON: 'ytcp-uploads-check-status yt-icon#success-icon',
+    CHECK_PROGRESS_LABEL: '.progress-label',
+
+    // Made for Kids (audience section on Details step)
+    AUDIENCE_SECTION: '#audience',
+    KIDS_YES_RADIO: 'tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_MFK"]',
+    KIDS_NO_RADIO: 'tp-yt-paper-radio-button[name="VIDEO_MADE_FOR_KIDS_NOT_MFK"]',
+
+    // Visibility
+    PRIVACY_RADIOS: '#privacy-radios',
+    PRIVATE_RADIO: 'tp-yt-paper-radio-button[name="PRIVATE"]',
+    UNLISTED_RADIO: 'tp-yt-paper-radio-button[name="UNLISTED"]',
+    PUBLIC_RADIO: 'tp-yt-paper-radio-button[name="PUBLIC"]',
+
+    // Published dialog
+    SHARE_URL: '#share-url',
+    CLOSE_BUTTON: '#close-button',
+    CLOSE_ICON_BUTTON: '#close-icon-button'
   }
 };

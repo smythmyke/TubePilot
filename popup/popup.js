@@ -230,27 +230,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const formStatus = document.getElementById('form-status');
 
   const productsStatus = document.getElementById('products-status');
-  const aiFieldsSection = document.getElementById('ai-fields-section');
-  const aiGenerateRow = document.getElementById('ai-generate-row');
-  const generateMetaBtn = document.getElementById('generate-meta-btn');
-  const regenerateMetaBtn = document.getElementById('regenerate-meta-btn');
   let isEditMode = false;
 
   const fields = {
     name: document.getElementById('p-name'),
     link: document.getElementById('p-link'),
     features: document.getElementById('p-features'),
-    benefits: document.getElementById('p-benefits'),
-    scenarios: document.getElementById('p-scenarios'),
     keywords: document.getElementById('p-keywords')
   };
 
   const counters = {
     name: { el: document.getElementById('p-name-count'), max: 100 },
     link: { el: document.getElementById('p-link-count'), max: 500 },
-    features: { el: document.getElementById('p-features-count'), max: 2000 },
-    benefits: { el: document.getElementById('p-benefits-count'), max: 1000 },
-    scenarios: { el: document.getElementById('p-scenarios-count'), max: 1000 }
+    features: { el: document.getElementById('p-features-count'), max: 2000 }
   };
 
   // Wire up char counters
@@ -353,8 +345,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     isEditMode = false;
     formTitle.textContent = 'Add Product (1 credit)';
     editProductId.value = '';
-    aiFieldsSection.classList.remove('show');
-    aiGenerateRow.classList.remove('hidden');
     saveProductBtn.disabled = true;
     productForm.classList.add('show');
     fields.name.focus();
@@ -377,8 +367,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     fields.name.value = p.name || '';
     fields.link.value = p.link || '';
     fields.features.value = p.features || '';
-    fields.benefits.value = p.benefits || '';
-    fields.scenarios.value = p.scenarios || '';
     fields.keywords.value = (p.keywords || []).join(', ');
 
     // Update counters
@@ -386,11 +374,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       counters[key].el.textContent = fields[key].value.length;
     });
 
-    aiFieldsSection.classList.add('show');
-    aiGenerateRow.classList.remove('hidden');
-    generateMetaBtn.textContent = 'Regenerate with AI';
     saveProductBtn.disabled = false;
-
     productForm.classList.add('show');
     fields.name.focus();
   }
@@ -405,7 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     if (!features) {
-      showFormStatus('Features / description is required', true);
+      showFormStatus('Description is required', true);
       return;
     }
 
@@ -414,8 +398,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       name: name.slice(0, 100),
       link: fields.link.value.trim().slice(0, 500),
       features: features.slice(0, 2000),
-      benefits: fields.benefits.value.trim().slice(0, 1000),
-      scenarios: fields.scenarios.value.trim().slice(0, 1000),
       keywords: parseCommaSep(fields.keywords.value)
     };
 
@@ -486,72 +468,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     editProductId.value = '';
     formStatus.classList.remove('show');
-    aiFieldsSection.classList.remove('show');
-    aiGenerateRow.classList.remove('hidden');
-    generateMetaBtn.textContent = 'Generate with AI';
     saveProductBtn.disabled = true;
     isEditMode = false;
   }
-
-  // AI generation
-  async function generateProductMeta() {
-    const name = fields.name.value.trim();
-    const features = fields.features.value.trim();
-
-    if (!name) {
-      showFormStatus('Product name is required', true);
-      return;
-    }
-    if (!features || features.length < 10) {
-      showFormStatus('Features must be at least 10 characters', true);
-      return;
-    }
-
-    generateMetaBtn.disabled = true;
-    regenerateMetaBtn.disabled = true;
-    const originalText = generateMetaBtn.textContent;
-    generateMetaBtn.textContent = 'Generating...';
-
-    try {
-      const result = await chrome.runtime.sendMessage({
-        type: 'GENERATE_PRODUCT_META',
-        name,
-        link: fields.link.value.trim(),
-        features
-      });
-
-      if (result.error) {
-        showFormStatus(result.error, true);
-        aiFieldsSection.classList.add('show');
-        saveProductBtn.disabled = false;
-        return;
-      }
-
-      fields.benefits.value = result.benefits || '';
-      fields.scenarios.value = result.scenarios || '';
-      fields.keywords.value = (result.keywords || []).join(', ');
-
-      ['benefits', 'scenarios'].forEach(key => {
-        if (counters[key]) {
-          counters[key].el.textContent = fields[key].value.length;
-        }
-      });
-
-      aiFieldsSection.classList.add('show');
-      saveProductBtn.disabled = false;
-    } catch (err) {
-      showFormStatus('Generation failed — fill in fields manually', true);
-      aiFieldsSection.classList.add('show');
-      saveProductBtn.disabled = false;
-    } finally {
-      generateMetaBtn.disabled = false;
-      regenerateMetaBtn.disabled = false;
-      generateMetaBtn.textContent = originalText;
-    }
-  }
-
-  generateMetaBtn.addEventListener('click', generateProductMeta);
-  regenerateMetaBtn.addEventListener('click', generateProductMeta);
 
   // Expand product limit
   expandLimitBtn.addEventListener('click', async () => {

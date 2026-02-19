@@ -322,63 +322,6 @@
     }
     .form-status.show { display: block; }
 
-    /* AI generation */
-    .ai-generate-row {
-      margin-top: 4px;
-      margin-bottom: 10px;
-    }
-    .btn-ai {
-      width: 100%;
-      padding: 8px;
-      border: 1px dashed #cc0000;
-      border-radius: 6px;
-      background: transparent;
-      color: #cc0000;
-      font-size: 12px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .btn-ai:hover { background: rgba(204, 0, 0, 0.1); }
-    .btn-ai:disabled { opacity: 0.5; cursor: not-allowed; }
-    .ai-hint {
-      font-size: 10px;
-      color: #717171;
-      text-align: center;
-      margin-top: 4px;
-    }
-    .ai-fields-section { display: none; }
-    .ai-fields-section.show { display: block; }
-    .ai-fields-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-      padding-bottom: 4px;
-      border-bottom: 1px solid #4a4a4a;
-    }
-    .ai-fields-header span {
-      font-size: 11px;
-      font-weight: 600;
-      color: #aaa;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .btn-regen {
-      padding: 3px 8px;
-      font-size: 10px;
-      border-radius: 10px;
-      border: 1px solid #4a4a4a;
-      background: transparent;
-      color: #aaa;
-      cursor: pointer;
-      font-family: inherit;
-      font-weight: 600;
-    }
-    .btn-regen:hover { color: #cc0000; border-color: #cc0000; }
-    .btn-regen:disabled { opacity: 0.5; cursor: not-allowed; }
-
     .footer {
       margin-top: 12px;
       padding-top: 8px;
@@ -477,42 +420,16 @@
       </div>
 
       <div class="form-row">
-        <label for="p-features" class="required">Features / Description</label>
-        <p class="hint">What does the product do? The AI uses this to write relevant descriptions.</p>
-        <textarea id="p-features" maxlength="2000" rows="3" placeholder="Key features, capabilities..."></textarea>
+        <label for="p-features" class="required">What It Does</label>
+        <p class="hint">Describe the product. The AI uses this to write a natural mention in your video description.</p>
+        <textarea id="p-features" maxlength="2000" rows="3" placeholder="Key features, what the product does..."></textarea>
         <div class="char-counter"><span id="p-features-count">0</span>/2000</div>
       </div>
 
-      <div class="ai-generate-row" id="ai-generate-row">
-        <button class="btn-ai" id="generate-meta-btn">Generate with AI</button>
-        <p class="ai-hint">Auto-fill benefits, scenarios &amp; keywords</p>
-      </div>
-
-      <div class="ai-fields-section" id="ai-fields-section">
-        <div class="ai-fields-header">
-          <span>AI-Generated Fields</span>
-          <button class="btn-regen" id="regenerate-meta-btn">Regenerate</button>
-        </div>
-
-        <div class="form-row">
-          <label for="p-benefits">Benefits</label>
-          <p class="hint">What problems does it solve?</p>
-          <textarea id="p-benefits" maxlength="1000" rows="2" placeholder="Saves time, automates..."></textarea>
-          <div class="char-counter"><span id="p-benefits-count">0</span>/1000</div>
-        </div>
-
-        <div class="form-row">
-          <label for="p-scenarios">Scenarios</label>
-          <p class="hint">When should the AI mention this product?</p>
-          <textarea id="p-scenarios" maxlength="1000" rows="2" placeholder="Videos about..."></textarea>
-          <div class="char-counter"><span id="p-scenarios-count">0</span>/1000</div>
-        </div>
-
-        <div class="form-row">
-          <label for="p-keywords">Keywords</label>
-          <p class="hint">Comma-separated. Helps with product matching.</p>
-          <input type="text" id="p-keywords" placeholder="e.g. SEO, YouTube, automation">
-        </div>
+      <div class="form-row">
+        <label for="p-keywords">SEO Keywords</label>
+        <p class="hint">Comma-separated. Woven into generated tags and description for better discoverability.</p>
+        <input type="text" id="p-keywords" maxlength="500" placeholder="e.g. SEO, YouTube, automation">
       </div>
 
       <div class="form-actions">

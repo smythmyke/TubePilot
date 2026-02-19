@@ -117,8 +117,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'CHECK_AUTH':
+      console.log('[TubePilot SW] CHECK_AUTH received');
       authService.checkAuth()
         .then(result => {
+          console.log('[TubePilot SW] CHECK_AUTH result:', result.authenticated);
           if (result.authenticated) {
             creditsService.getBalance()
               .then(credits => sendResponse({ ...result, credits }))
@@ -127,19 +129,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse(result);
           }
         })
-        .catch(() => sendResponse({ authenticated: false, user: null }));
+        .catch(err => {
+          console.error('[TubePilot SW] CHECK_AUTH error:', err);
+          sendResponse({ authenticated: false, user: null });
+        });
       return true;
 
     case 'SIGN_IN':
+      console.log('[TubePilot SW] SIGN_IN received');
       authService.signIn()
         .then(user => {
+          console.log('[TubePilot SW] SIGN_IN success:', user.email);
           creditsService.getBalance(true).then(credits => {
+            console.log('[TubePilot SW] Credits loaded:', credits);
             sendResponse({ success: true, user, credits });
-          }).catch(() => {
+          }).catch(credErr => {
+            console.warn('[TubePilot SW] Credits fetch failed:', credErr);
             sendResponse({ success: true, user, credits: null });
           });
         })
-        .catch(err => sendResponse({ success: false, error: err.message }));
+        .catch(err => {
+          console.error('[TubePilot SW] SIGN_IN failed:', err.message, err.stack);
+          sendResponse({ success: false, error: err.message });
+        });
       return true;
 
     case 'SIGN_OUT':
@@ -237,7 +249,8 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
       name: truncate(product.name, 100),
       link: truncate(product.link, 500),
       features: truncate(product.features, 2000),
-      benefits: truncate(product.benefits, 1000)
+      benefits: truncate(product.benefits, 1000),
+      keywords: Array.isArray(product.keywords) ? product.keywords.slice(0, 20) : []
     };
   }
 
