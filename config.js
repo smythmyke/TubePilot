@@ -31,7 +31,20 @@ const CONFIG = {
 
   // YouTube Data API
   YOUTUBE_API_BASE: 'https://www.googleapis.com/youtube/v3',
+  YOUTUBE_UPLOAD_API: 'https://www.googleapis.com/upload/youtube/v3/videos',
   YOUTUBE_API_SCOPE: 'https://www.googleapis.com/auth/youtube.force-ssl',
+
+  // Multi-channel storage keys
+  CHANNELS_STORAGE_KEY: 'tubepilot_channels',
+  SELECTED_CHANNEL_KEY: 'tubepilot_selected_channel',
+  CHANNEL_PLAYLIST_KEY: 'tubepilot_channel_playlist',
+
+  // OAuth client ID — Web Application type (for launchWebAuthFlow)
+  OAUTH_CLIENT_ID: '815700675676-qi7s0i6o92vqqn6usk2vs374p18p1tu9.apps.googleusercontent.com',
+
+  // Upload history
+  UPLOAD_HISTORY_KEY: 'tubepilot_upload_history',
+  UPLOAD_HISTORY_MAX: 50,
 
   // Apply strategy
   APPLY_STRATEGY_KEY: 'tubepilot_apply_strategy',

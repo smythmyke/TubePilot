@@ -20,34 +20,62 @@ const QUOTA_STORAGE_KEY = 'tubepilot_quota';
 
 async function getQuotaUsage() {
   const result = await chrome.storage.local.get([QUOTA_STORAGE_KEY]);
-  const quota = result[QUOTA_STORAGE_KEY] || { used: 0, date: '' };
+  const stored = result[QUOTA_STORAGE_KEY] || {};
+
+  // Migrate from old flat format { used, date } to new structure
+  if (stored.used !== undefined && !stored.global) {
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
+    return {
+      global: { used: stored.date === today ? stored.used : 0, date: today },
+      channels: {}
+    };
+  }
+
+  const quota = {
+    global: stored.global || { used: 0, date: '' },
+    channels: stored.channels || {}
+  };
 
   // Reset if it's a new day (Pacific Time)
   const today = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' });
-  if (quota.date !== today) {
-    return { used: 0, date: today };
+  if (quota.global.date !== today) {
+    quota.global = { used: 0, date: today };
+    // Reset per-channel daily counts but keep names
+    for (const chId of Object.keys(quota.channels)) {
+      quota.channels[chId].used = 0;
+      quota.channels[chId].operations = {};
+    }
   }
   return quota;
 }
 
-async function trackQuota(operation) {
+async function trackQuota(operation, channelId, channelName) {
   const cost = QUOTA_COSTS[operation] || 0;
   if (cost === 0) return;
 
   const quota = await getQuotaUsage();
-  quota.used += cost;
+  quota.global.used += cost;
+
+  // Track per-channel if channelId provided
+  if (channelId) {
+    if (!quota.channels[channelId]) {
+      quota.channels[channelId] = { channelName: channelName || '', used: 0, operations: {} };
+    }
+    quota.channels[channelId].used += cost;
+    quota.channels[channelId].operations[operation] = (quota.channels[channelId].operations[operation] || 0) + 1;
+    if (channelName) quota.channels[channelId].channelName = channelName;
+  }
+
   await chrome.storage.local.set({ [QUOTA_STORAGE_KEY]: quota });
 
-  if (quota.used >= DAILY_QUOTA_LIMIT * 0.9) {
-    console.warn(`[TubePilot Quota] ${quota.used}/${DAILY_QUOTA_LIMIT} units used today (${Math.round(quota.used / DAILY_QUOTA_LIMIT * 100)}%)`);
-  }
+  // Quota warning is available via getQuotaStatus() in the UI
 }
 
 async function checkQuotaAvailable(operation) {
   const cost = QUOTA_COSTS[operation] || 0;
   const quota = await getQuotaUsage();
-  if (quota.used + cost > DAILY_QUOTA_LIMIT) {
-    throw new Error(`YouTube API daily quota would be exceeded (${quota.used}/${DAILY_QUOTA_LIMIT} used). Resets at midnight Pacific Time.`);
+  if (quota.global.used + cost > DAILY_QUOTA_LIMIT) {
+    throw new Error(`YouTube API daily quota would be exceeded (${quota.global.used}/${DAILY_QUOTA_LIMIT} used). Resets at midnight Pacific Time.`);
   }
 }
 
@@ -56,13 +84,33 @@ async function checkQuotaAvailable(operation) {
 const DATA_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 async function enforceDataFreshness() {
+  // Legacy single-channel cache
   const result = await chrome.storage.local.get(['tubepilot_channel']);
   const cached = result.tubepilot_channel;
-  if (!cached || !cached.lastFetched) return;
-
-  if (Date.now() - cached.lastFetched > DATA_MAX_AGE_MS) {
+  if (cached && cached.lastFetched && Date.now() - cached.lastFetched > DATA_MAX_AGE_MS) {
     await chrome.storage.local.remove(['tubepilot_channel']);
-    console.log('[TubePilot] Cleared stale channel data (>30 days) per YouTube API ToS');
+    // Cleared stale channel data (>30 days) per YouTube API ToS
+  }
+
+  // Multi-channel storage — clear stale channels
+  const channelsResult = await chrome.storage.local.get([CONFIG.CHANNELS_STORAGE_KEY]);
+  const channels = channelsResult[CONFIG.CHANNELS_STORAGE_KEY];
+  if (channels) {
+    let changed = false;
+    for (const chId of Object.keys(channels)) {
+      const ch = channels[chId];
+      if (ch.lastFetched && Date.now() - ch.lastFetched > DATA_MAX_AGE_MS) {
+        // Clear cached data but keep the channel entry (user needs to reconnect/refresh)
+        ch.channelDescription = '';
+        ch.channelKeywords = [];
+        ch.playlists = [];
+        ch.lastFetched = 0;
+        changed = true;
+      }
+    }
+    if (changed) {
+      await chrome.storage.local.set({ [CONFIG.CHANNELS_STORAGE_KEY]: channels });
+    }
   }
 }
 
@@ -165,7 +213,7 @@ class YouTubeApiService {
     const stats = ch.statistics || {};
     const branding = ch.brandingSettings?.channel || {};
 
-    await trackQuota('channels.list');
+    await trackQuota('channels.list', ch.id, snippet.title);
     return {
       channelId: ch.id,
       channelName: snippet.title || '',
@@ -259,11 +307,16 @@ class YouTubeApiService {
    */
   async getQuotaStatus() {
     const quota = await getQuotaUsage();
+    const used = quota.global.used;
+    const remaining = DAILY_QUOTA_LIMIT - used;
+    const uploadCost = QUOTA_COSTS['videos.insert'];
     return {
-      used: quota.used,
+      used,
       limit: DAILY_QUOTA_LIMIT,
-      remaining: DAILY_QUOTA_LIMIT - quota.used,
-      percentage: Math.round(quota.used / DAILY_QUOTA_LIMIT * 100)
+      remaining,
+      percentage: Math.round(used / DAILY_QUOTA_LIMIT * 100),
+      uploadsRemaining: Math.max(0, Math.floor(remaining / uploadCost)),
+      channels: quota.channels
     };
   }
 
@@ -271,7 +324,6 @@ class YouTubeApiService {
    * Read → Merge → Write: applies only generated fields, preserves everything else
    */
   async applyMetadata(videoId, metadata, token) {
-    // Read current state
     const video = await this.getVideoSnippet(videoId, token);
     const existing = video.snippet;
 
@@ -291,8 +343,8 @@ class YouTubeApiService {
       merged.categoryId = String(metadata.categoryId);
     }
 
-    // Write back with merged snippet
-    return await this.updateVideoSnippet(videoId, merged, token);
+    const result = await this.updateVideoSnippet(videoId, merged, token);
+    return result;
   }
 }
 

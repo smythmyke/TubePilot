@@ -3,10 +3,12 @@
   "name": "TubePilot",
   "version": "1.0.0",
   "description": "AI-powered YouTube metadata generator. Generate SEO-optimized titles, descriptions, and tags for your videos.",
-  "permissions": ["activeTab", "storage", "identity"],
+  "permissions": ["activeTab", "storage", "identity", "scripting"],
   "host_permissions": [
     "https://business-search-api-815700675676.us-central1.run.app/*",
-    "https://www.googleapis.com/*"
+    "https://www.googleapis.com/youtube/*",
+    "https://www.googleapis.com/upload/youtube/*",
+    "https://www.googleapis.com/oauth2/*"
   ],
   "oauth2": {
     "client_id": "815700675676-0pq07d55g7nrvlghroislq2lrvvcbrso.apps.googleusercontent.com",

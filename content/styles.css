@@ -130,6 +130,40 @@
   color: #f1f1f1;
 }
 
+/* Panel Tabs */
+.tp-panel-tabs {
+  display: flex;
+  gap: 0;
+  background: #212121;
+  border-bottom: 1px solid #3f3f3f;
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+
+.tp-panel-tab {
+  flex: 1;
+  padding: 10px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #717171;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  text-align: center;
+}
+
+.tp-panel-tab:hover {
+  color: #aaa;
+}
+
+.tp-panel-tab-active {
+  color: #f1f1f1;
+  border-bottom-color: #cc0000;
+}
+
 /* Credits Badge */
 .tp-credits-badge {
   display: flex;
@@ -192,10 +226,385 @@
 }
 
 /* Dropdown rows — shared layout */
+/* YouTube Connect Banner */
+.tp-yt-connect {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #1a2a3a;
+  border: 1px solid #2a4a6a;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #7aafdf;
+  margin-bottom: 10px;
+}
+
+.tp-btn-small {
+  padding: 4px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Channel Selector Dropdown */
+.tp-channel-selector {
+  position: relative;
+  margin-bottom: 4px;
+}
+
+.tp-channel-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: #3f3f3f;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.tp-channel-selector-btn:hover {
+  border-color: #666;
+}
+
+.tp-channel-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #4a4a4a;
+  flex-shrink: 0;
+}
+
+.tp-channel-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.tp-channel-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f1f1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tp-channel-stats {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 1px;
+}
+
+.tp-channel-chevron {
+  font-size: 12px;
+  color: #aaa;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.tp-channel-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #333;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  z-index: 10;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.tp-channel-dropdown.tp-visible {
+  display: block;
+}
+
+.tp-channel-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.tp-channel-current {
+  background: #3f3f3f;
+}
+
+.tp-channel-check {
+  color: #46d160;
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+}
+
+.tp-channel-dropdown-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.tp-channel-dropdown-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f1f1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tp-channel-dropdown-id {
+  font-size: 10px;
+  color: #717171;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tp-channel-dropdown-item:hover {
+  background: #4a4a4a;
+  cursor: pointer;
+}
+
+.tp-channel-dropdown-item.tp-channel-current:hover {
+  background: #3f3f3f;
+}
+
+.tp-channel-avatar-small {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #4a4a4a;
+  flex-shrink: 0;
+}
+
+.tp-channel-dropdown-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.tp-btn-reconnect {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid #e0a030;
+  background: transparent;
+  color: #e0a030;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.tp-btn-reconnect:hover {
+  background: rgba(224, 160, 48, 0.15);
+}
+
+.tp-btn-remove-channel {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #717171;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tp-btn-remove-channel:hover {
+  color: #ff4444;
+  border-color: #ff4444;
+}
+
+.tp-channel-expired-label {
+  font-size: 10px;
+  color: #e0a030;
+  font-weight: 600;
+}
+
+.tp-channel-dropdown-footer {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #717171;
+  border-top: 1px solid #4a4a4a;
+  text-align: center;
+}
+
+.tp-channel-add-footer {
+  padding: 8px 12px;
+  border-top: 1px solid #4a4a4a;
+  text-align: center;
+}
+
+.tp-channel-add-footer button {
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  background: transparent;
+  color: #cc0000;
+  border: 1px dashed #cc0000;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tp-channel-add-footer button:hover {
+  background: rgba(204, 0, 0, 0.1);
+}
+
+.tp-channel-dropdown-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* Quota Bar */
+.tp-quota-bar {
+  margin-bottom: 4px;
+}
+
+.tp-quota-track {
+  height: 6px;
+  background: #3f3f3f;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tp-quota-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.tp-quota-fill.tp-quota-green {
+  background: #46d160;
+}
+
+.tp-quota-fill.tp-quota-yellow {
+  background: #e0a030;
+}
+
+.tp-quota-fill.tp-quota-red {
+  background: #ff4444;
+}
+
+.tp-quota-text {
+  font-size: 10px;
+  color: #717171;
+  margin-top: 3px;
+}
+
+/* API Upload Progress */
+.tp-api-upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.tp-api-upload-status {
+  font-size: 13px;
+  color: #f1f1f1;
+  font-weight: 500;
+}
+
+.tp-api-upload-track {
+  height: 8px;
+  background: #3f3f3f;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.tp-api-upload-fill {
+  height: 100%;
+  background: #cc0000;
+  border-radius: 4px;
+  transition: width 0.2s ease;
+  width: 0%;
+}
+
+.tp-api-upload-bytes {
+  font-size: 11px;
+  color: #aaa;
+}
+
+/* Advanced Section */
+.tp-advanced-toggle {
+  width: 100%;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  color: #aaa;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s;
+}
+
+.tp-advanced-toggle:hover {
+  color: #f1f1f1;
+}
+
+.tp-advanced-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.tp-advanced-content.tp-visible {
+  max-height: 400px;
+}
+
+.tp-advanced-content .tp-project-row {
+  margin-bottom: 6px;
+}
+
+.tp-advanced-content .tp-field-group {
+  margin-bottom: 6px;
+}
+
+.tp-checkbox-row {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+
+.tp-checkbox-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.tp-checkbox-row input[type="checkbox"] {
+  accent-color: #cc0000;
+}
+
 .tp-project-row,
 .tp-strategy-row,
-.tp-visibility-row,
-.tp-kids-row {
+.tp-visibility-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -206,8 +615,7 @@
 
 .tp-project-row > span,
 .tp-strategy-row > span,
-.tp-visibility-row > span,
-.tp-kids-row > span {
+.tp-visibility-row > span {
   min-width: 72px;
   flex-shrink: 0;
 }
@@ -553,14 +961,22 @@
   text-align: right;
 }
 
-/* Category display */
-.tp-category-display {
+/* Category select */
+.tp-category-select {
+  flex: 1;
   background: #3f3f3f;
+  color: #f1f1f1;
   border: 1px solid #4a4a4a;
   border-radius: 6px;
   padding: 8px 12px;
   font-size: 13px;
-  color: #f1f1f1;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+}
+
+.tp-category-select:focus {
+  border-color: #cc0000;
 }
 
 /* Buttons */
@@ -677,6 +1093,11 @@
   background: #212121;
 }
 
+/* New Upload Button */
+#tp-new-upload-btn {
+  flex: 1 1 100%;
+}
+
 /* Toast */
 .tp-toast {
   position: fixed;
@@ -707,6 +1128,94 @@
 
 .tp-toast.tp-success {
   border-left: 3px solid #46d160;
+}
+
+/* Upload History */
+.tp-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.tp-history-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tp-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tp-history-empty {
+  text-align: center;
+  color: #717171;
+  font-size: 13px;
+  padding: 32px 0;
+}
+
+.tp-history-card {
+  background: #1e1e1e;
+  border: 1px solid #3f3f3f;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.tp-history-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.tp-history-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #f1f1f1;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+a.tp-history-card-title:hover {
+  color: #cc0000;
+  text-decoration: underline;
+}
+
+.tp-history-method {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.tp-history-method-api {
+  background: rgba(70, 209, 96, 0.15);
+  color: #46d160;
+}
+
+.tp-history-method-dom {
+  background: rgba(170, 170, 170, 0.15);
+  color: #aaa;
+}
+
+.tp-history-card-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: #717171;
 }
 
 /* === Responsive Panel === */
@@ -745,12 +1254,14 @@
 /* === Focus Visible === */
 .tp-fab:focus-visible,
 .tp-close-btn:focus-visible,
+.tp-panel-tab:focus-visible,
 .tp-btn:focus-visible,
 .tp-add-product-btn:focus-visible,
 .tp-project-select:focus-visible,
 .tp-strategy-select:focus-visible,
 .tp-visibility-select:focus-visible,
-.tp-kids-select:focus-visible {
+.tp-kids-select:focus-visible,
+.tp-category-select:focus-visible {
   outline: 2px solid #cc0000;
   outline-offset: 2px;
 }

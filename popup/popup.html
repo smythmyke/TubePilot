@@ -338,6 +338,119 @@
       color: #cc0000;
     }
     .hidden { display: none !important; }
+
+    /* Buy Credits Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      animation: fadeIn 0.2s ease-out;
+    }
+    .modal-box {
+      background: #3f3f3f;
+      border-radius: 12px;
+      padding: 20px;
+      width: 100%;
+      max-width: 348px;
+      animation: modalIn 0.3s ease-out;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .modal-box h2 {
+      font-size: 16px;
+      margin-bottom: 4px;
+      color: #f1f1f1;
+    }
+    .modal-subtitle {
+      font-size: 12px;
+      color: #aaa;
+      margin-bottom: 14px;
+    }
+    .credit-packs { margin-bottom: 14px; }
+    .pack {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border: 2px solid #4a4a4a;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .pack:hover {
+      border-color: #cc0000;
+      background: #4a4a4a;
+    }
+    .pack.selected {
+      border-color: #cc0000;
+      background: rgba(204,0,0,0.1);
+    }
+    .pack input[type="radio"] {
+      margin-right: 10px;
+      accent-color: #cc0000;
+    }
+    .pack-info {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+    .pack-info strong {
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #f1f1f1;
+    }
+    .pack-info .pack-detail {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 1px;
+    }
+    .pack-badge {
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .pack-badge.popular {
+      background: #cc0000;
+      color: white;
+    }
+    .pack-badge.best-value {
+      background: #28a745;
+      color: white;
+    }
+    .pack-price {
+      font-size: 15px;
+      font-weight: 700;
+      color: #cc0000;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .modal-actions .btn {
+      flex: 1;
+      margin-bottom: 0;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.95) translateY(-10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
   </style>
 </head>
 <body>
@@ -444,6 +557,21 @@
 
   <div class="footer">
     <span style="color: #aaa;" id="version"></span>
+  </div>
+
+  <!-- Buy Credits Modal -->
+  <div id="credits-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <h2>Buy Credits</h2>
+      <p class="modal-subtitle">Select a credit pack to continue</p>
+      <div id="credit-packs" class="credit-packs">
+        <div class="pack" style="opacity:0.4;pointer-events:none;justify-content:center;color:#aaa;font-size:12px;">Loading packs...</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="buy-now-btn" disabled>Buy Now</button>
+        <button class="btn btn-secondary" id="cancel-modal-btn">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <script src="popup.js"></script>

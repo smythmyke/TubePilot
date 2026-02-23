@@ -97,6 +97,9 @@ chrome.runtime.onInstalled.addListener((details) => {
 // --- Data freshness check (YouTube API ToS: 30-day max) ---
 enforceDataFreshness().catch(() => {});
 
+// --- Migrate single channel to multi-channel storage ---
+authService.migrateFromSingleChannel().catch(() => {});
+
 // --- Detect Stripe purchase redirect ---
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -114,16 +117,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   switch (message.type) {
     case 'GENERATE_YOUTUBE_META':
-      handleGenerateYouTubeMeta(message.videoDescription, message.product, message.channelContext, message.targetAudience)
+      handleGenerateYouTubeMeta(message.videoDescription, message.product, message.channelContext)
         .then(result => sendResponse({ result }))
         .catch(err => sendResponse({ error: err.message }));
       return true;
 
     case 'CHECK_AUTH':
-      console.log('[TubePilot SW] CHECK_AUTH received');
       authService.checkAuth()
         .then(result => {
-          console.log('[TubePilot SW] CHECK_AUTH result:', result.authenticated);
           if (result.authenticated) {
             creditsService.getBalance()
               .then(credits => sendResponse({ ...result, credits }))
@@ -132,27 +133,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse(result);
           }
         })
-        .catch(err => {
-          console.error('[TubePilot SW] CHECK_AUTH error:', err);
+        .catch(() => {
           sendResponse({ authenticated: false, user: null });
         });
       return true;
 
     case 'SIGN_IN':
-      console.log('[TubePilot SW] SIGN_IN received');
       authService.signIn()
         .then(user => {
-          console.log('[TubePilot SW] SIGN_IN success:', user.email);
           creditsService.getBalance(true).then(credits => {
-            console.log('[TubePilot SW] Credits loaded:', credits);
             sendResponse({ success: true, user, credits });
-          }).catch(credErr => {
-            console.warn('[TubePilot SW] Credits fetch failed:', credErr);
+          }).catch(() => {
             sendResponse({ success: true, user, credits: null });
           });
         })
         .catch(err => {
-          console.error('[TubePilot SW] SIGN_IN failed:', err.message, err.stack);
           sendResponse({ success: false, error: err.message });
         });
       return true;
@@ -172,10 +167,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(() => sendResponse({ success: false, credits: null }));
       return true;
 
+    case 'GET_CREDIT_PACKS':
+      creditsService.getCreditPacks()
+        .then(packs => sendResponse({ success: true, packs }))
+        .catch(err => sendResponse({ success: false, packs: [], error: err.message }));
+      return true;
+
     case 'BUY_CREDITS':
       creditsService.createCheckoutSession(message.packId || 'standard')
-        .then(result => sendResponse(result))
-        .catch(err => sendResponse({ error: err.message }));
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case 'GENERATE_PRODUCT_META':
@@ -197,13 +198,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'APPLY_VIA_API':
-      handleApplyViaApi(message.videoId, message.metadata)
+      handleApplyViaApi(message.videoId, message.metadata, message.channelId)
         .then(result => sendResponse({ success: true, result }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case 'GET_YOUTUBE_TOKEN':
-      authService.getYouTubeToken(true)
+      handleGetYouTubeToken(message.channelId)
         .then(token => sendResponse({ success: true, token }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
@@ -215,42 +216,80 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'FETCH_CHANNEL_INFO':
-      handleFetchChannelInfo()
+      handleFetchChannelInfo(message.channelId)
         .then(data => sendResponse({ success: true, data }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case 'FETCH_PLAYLISTS':
-      handleFetchPlaylists()
+      handleFetchPlaylists(message.channelId)
         .then(playlists => sendResponse({ success: true, playlists }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case 'GET_CHANNEL_CACHE':
-      enforceDataFreshness().then(() => {
-        chrome.storage.local.get(['tubepilot_channel'], (result) => {
-          sendResponse({ data: result.tubepilot_channel || null });
-        });
-      }).catch(() => {
-        sendResponse({ data: null });
-      });
+      handleGetChannelCache(message.channelId)
+        .then(data => sendResponse({ data }))
+        .catch(() => sendResponse({ data: null }));
       return true;
 
     case 'REFRESH_CHANNEL':
-      handleRefreshChannel()
+      handleRefreshChannel(message.channelId)
         .then(data => sendResponse({ success: true, data }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case 'ADD_TO_PLAYLIST':
-      handleAddToPlaylist(message.playlistId, message.videoId)
+      handleAddToPlaylist(message.playlistId, message.videoId, message.channelId)
         .then(result => sendResponse({ success: true, result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'ADD_CHANNEL':
+      handleAddChannel()
+        .then(data => sendResponse({ success: true, data }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'GET_CONNECTED_CHANNELS':
+      authService.getConnectedChannels()
+        .then(channels => sendResponse({ success: true, channels }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'REMOVE_CHANNEL':
+      authService.removeChannel(message.channelId)
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'GET_CHANNEL_TOKEN':
+      handleGetChannelToken(message.channelId)
+        .then(token => sendResponse({ success: true, token }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'SET_SELECTED_CHANNEL':
+      authService.setSelectedChannel(message.channelId)
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'RECONNECT_CHANNEL':
+      handleReconnectChannel(message.channelId)
+        .then(data => sendResponse({ success: true, data }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case 'GET_QUOTA_STATUS':
       youtubeApiService.getQuotaStatus()
         .then(status => sendResponse({ success: true, ...status }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'TRACK_UPLOAD_QUOTA':
+      handleTrackUploadQuota(message.channelId, message.channelName)
+        .then(() => sendResponse({ success: true }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
   }
@@ -260,7 +299,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 const CREDITS_PER_GENERATION = 1;
 
-async function handleGenerateYouTubeMeta(videoDescription, product, channelContext, targetAudience) {
+async function handleGenerateYouTubeMeta(videoDescription, product, channelContext) {
   const token = await getAuthToken();
   if (!token) {
     throw new Error('Sign in required to generate metadata');
@@ -274,7 +313,7 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
     if (creditResult.error === 'not_authenticated') {
       throw new Error('Session expired — please sign in again');
     }
-    throw new Error('Failed to verify credits. Please try again.');
+    throw new Error(`Failed to verify credits (${creditResult.error}). Please try again.`);
   }
 
   function truncate(str, max) {
@@ -283,8 +322,7 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
 
   const payload = {
     videoDescription: truncate(videoDescription, 3000),
-    channelContext: truncate(channelContext || '', 1000),
-    targetAudience: truncate(targetAudience || '', 500)
+    channelContext: truncate(channelContext || '', 1000)
   };
 
   if (product && product.name) {
@@ -308,12 +346,11 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
     });
 
     if (!res.ok) {
-      const errBody = await res.text();
       if (res.status === 401) throw new Error('Session expired — please sign in again');
       if (res.status === 402) throw new Error('Insufficient credits — purchase more to continue');
       if (res.status === 429) throw new Error('Rate limit exceeded — wait a moment');
       if (res.status === 503) throw new Error('AI service unavailable');
-      throw new Error('Failed to generate metadata. Please try again.');
+      throw new Error(`Failed to generate metadata (${res.status}). Please try again.`);
     }
 
     const data = await res.json();
@@ -380,34 +417,20 @@ async function handleUseProductCredit() {
 
 // --- YouTube Data API apply handler ---
 
-async function handleApplyViaApi(videoId, metadata) {
+async function handleApplyViaApi(videoId, metadata, channelId) {
   if (!videoId) throw new Error('No video ID provided');
   if (!metadata) throw new Error('No metadata provided');
 
-  // Try silent token first, then interactive
-  let token;
-  try {
-    token = await authService.getYouTubeToken(false);
-  } catch {
-    token = await authService.getYouTubeToken(true);
-  }
-
-  return await youtubeApiService.applyMetadata(videoId, metadata, token);
+  const token = await resolveYouTubeTokenStrict(channelId);
+  const result = await youtubeApiService.applyMetadata(videoId, metadata, token);
+  return result;
 }
 
 // --- YouTube Channel Data ---
 
-async function getYouTubeTokenSilentOrInteractive(interactive) {
-  try {
-    return await authService.getYouTubeToken(false);
-  } catch {
-    if (interactive) return await authService.getYouTubeToken(true);
-    throw new Error('YouTube scope not granted');
-  }
-}
+async function handleFetchChannelInfo(channelId) {
+  const token = await resolveYouTubeTokenStrict(channelId);
 
-async function handleFetchChannelInfo() {
-  const token = await getYouTubeTokenSilentOrInteractive(true);
   const channelInfo = await youtubeApiService.getChannelInfo(token);
   const playlists = await youtubeApiService.getPlaylists(token);
 
@@ -417,15 +440,46 @@ async function handleFetchChannelInfo() {
     lastFetched: Date.now()
   };
 
+  // Also update in multi-channel storage if applicable
+  if (channelInfo.channelId) {
+    const channels = await authService.getConnectedChannels();
+    if (channels[channelInfo.channelId]) {
+      const ch = channels[channelInfo.channelId];
+      Object.assign(ch, {
+        channelName: channelInfo.channelName,
+        channelAvatar: channelInfo.channelAvatar,
+        channelDescription: channelInfo.channelDescription,
+        channelKeywords: channelInfo.channelKeywords,
+        subscriberCount: channelInfo.subscriberCount,
+        videoCount: channelInfo.videoCount,
+        playlists,
+        lastFetched: Date.now()
+      });
+      await chrome.storage.local.set({ [CONFIG.CHANNELS_STORAGE_KEY]: channels });
+    }
+  }
+
+  // Keep legacy cache for backwards compat
   await chrome.storage.local.set({ tubepilot_channel: data });
   return data;
 }
 
-async function handleFetchPlaylists() {
-  const token = await getYouTubeTokenSilentOrInteractive(false);
+async function handleFetchPlaylists(channelId) {
+  const token = await resolveYouTubeTokenStrict(channelId);
   const playlists = await youtubeApiService.getPlaylists(token);
 
-  // Update just the playlists in cached channel data
+  // Update playlists in multi-channel storage
+  const id = channelId || await authService.getSelectedChannelId();
+  if (id) {
+    const channels = await authService.getConnectedChannels();
+    if (channels[id]) {
+      channels[id].playlists = playlists;
+      channels[id].lastFetched = Date.now();
+      await chrome.storage.local.set({ [CONFIG.CHANNELS_STORAGE_KEY]: channels });
+    }
+  }
+
+  // Also update legacy cache
   const stored = await chrome.storage.local.get(['tubepilot_channel']);
   const existing = stored.tubepilot_channel || {};
   existing.playlists = playlists;
@@ -435,8 +489,9 @@ async function handleFetchPlaylists() {
   return playlists;
 }
 
-async function handleRefreshChannel() {
-  const token = await getYouTubeTokenSilentOrInteractive(false);
+async function handleRefreshChannel(channelId) {
+  const token = await resolveYouTubeTokenStrict(channelId);
+
   const channelInfo = await youtubeApiService.getChannelInfo(token);
   const playlists = await youtubeApiService.getPlaylists(token);
 
@@ -452,15 +507,177 @@ async function handleRefreshChannel() {
 
   await chrome.storage.local.set({ tubepilot_channel: data });
 
+  // Update multi-channel storage
+  if (channelInfo.channelId) {
+    const channels = await authService.getConnectedChannels();
+    if (channels[channelInfo.channelId]) {
+      const ch = channels[channelInfo.channelId];
+      Object.assign(ch, {
+        channelName: channelInfo.channelName,
+        channelAvatar: channelInfo.channelAvatar,
+        channelDescription: channelInfo.channelDescription,
+        channelKeywords: channelInfo.channelKeywords,
+        subscriberCount: channelInfo.subscriberCount,
+        videoCount: channelInfo.videoCount,
+        playlists,
+        lastFetched: Date.now()
+      });
+      await chrome.storage.local.set({ [CONFIG.CHANNELS_STORAGE_KEY]: channels });
+    }
+  }
+
   return { ...data, channelChanged };
 }
 
-async function handleAddToPlaylist(playlistId, videoId) {
+async function handleAddToPlaylist(playlistId, videoId, channelId) {
   if (!playlistId) throw new Error('No playlist ID provided');
   if (!videoId) throw new Error('No video ID provided');
 
-  const token = await getYouTubeTokenSilentOrInteractive(false);
+  const token = await resolveYouTubeTokenStrict(channelId);
   return await youtubeApiService.addToPlaylist(playlistId, videoId, token);
+}
+
+async function handleTrackUploadQuota(channelId, channelName) {
+  await trackQuota('videos.insert', channelId, channelName);
+}
+
+// --- Multi-Channel Handlers ---
+
+/**
+ * Strict token resolver: get the token for the specified (or selected) channel.
+ * NEVER falls back to chrome.identity.getAuthToken, which may belong to a
+ * completely different Google account / YouTube channel.
+ */
+async function resolveYouTubeTokenStrict(channelId) {
+  // Determine which channel to use
+  const id = channelId || await authService.getSelectedChannelId();
+  if (!id) {
+    throw new Error('No channel selected — connect a YouTube channel first');
+  }
+
+  const token = await authService.getChannelToken(id);
+  if (token) return token;
+
+  // Token expired — tell the user which channel needs reconnecting
+  const channels = await authService.getConnectedChannels();
+  const name = channels[id]?.channelName || id;
+  throw new Error(`Token expired for "${name}" — reconnect the channel to continue`);
+}
+
+/**
+ * GET_YOUTUBE_TOKEN handler: use per-channel token when channelId is provided.
+ * Only falls back to legacy chrome.identity when no channelId is specified
+ * AND no channel is selected (i.e. legacy/initial setup flow).
+ */
+async function handleGetYouTubeToken(channelId) {
+  // If a specific channel is requested, use strict resolution (no cross-account fallback)
+  if (channelId) {
+    return await resolveYouTubeTokenStrict(channelId);
+  }
+
+  // Try selected channel first
+  try {
+    return await resolveYouTubeTokenStrict();
+  } catch {
+    // No channel selected or token expired — fall back to legacy only for initial setup
+    try {
+      return await authService.getYouTubeToken(false);
+    } catch {
+      return await authService.getYouTubeToken(true);
+    }
+  }
+}
+
+/**
+ * GET_CHANNEL_CACHE: read from multi-channel storage (selected channel), fall back to legacy.
+ */
+async function handleGetChannelCache(channelId) {
+  await enforceDataFreshness();
+
+  // Try multi-channel storage first (prefer explicit channelId, fall back to selected)
+  const id = channelId || await authService.getSelectedChannelId();
+  if (id) {
+    const channels = await authService.getConnectedChannels();
+    if (channels[id]) return channels[id];
+  }
+
+  // Fall back to legacy single-channel cache
+  const result = await chrome.storage.local.get(['tubepilot_channel']);
+  return result.tubepilot_channel || null;
+}
+
+/**
+ * GET_CHANNEL_TOKEN: return per-channel token (selected if no channelId specified).
+ */
+async function handleGetChannelToken(channelId) {
+  const id = channelId || await authService.getSelectedChannelId();
+  if (!id) throw new Error('No channel selected');
+
+  const token = await authService.getChannelToken(id);
+  if (!token) throw new Error('Channel token expired — reconnect required');
+  return token;
+}
+
+/**
+ * Fetch the Google account email for a token (used as login_hint for silent refresh).
+ */
+async function fetchLoginHint(accessToken) {
+  try {
+    const res = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.email || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ADD_CHANNEL: run launchWebAuthFlow, fetch channel info + playlists, store, auto-select.
+ */
+async function handleAddChannel() {
+  const { accessToken, expiresIn } = await authService.addYouTubeChannel();
+
+  // Fetch channel info and playlists with the new token
+  const channelInfo = await youtubeApiService.getChannelInfo(accessToken);
+  const playlists = await youtubeApiService.getPlaylists(accessToken);
+
+  // Fetch the Google account email to use as login_hint for silent token refresh
+  const loginHint = await fetchLoginHint(accessToken);
+
+  const channelData = { ...channelInfo, playlists, loginHint };
+
+  // Store the channel
+  const stored = await authService.storeChannel(channelData, accessToken, expiresIn);
+
+  // Auto-select if it's the first channel
+  const channels = await authService.getConnectedChannels();
+  if (Object.keys(channels).length === 1) {
+    await authService.setSelectedChannel(channelInfo.channelId);
+  }
+
+  return stored;
+}
+
+/**
+ * RECONNECT_CHANNEL: re-run launchWebAuthFlow, update token for the channel.
+ * If user picks a different account, adds a new channel instead.
+ */
+async function handleReconnectChannel(channelId) {
+  const { accessToken, expiresIn } = await authService.addYouTubeChannel();
+
+  // Fetch channel info to see which channel this token belongs to
+  const channelInfo = await youtubeApiService.getChannelInfo(accessToken);
+  const playlists = await youtubeApiService.getPlaylists(accessToken);
+  const loginHint = await fetchLoginHint(accessToken);
+
+  const channelData = { ...channelInfo, playlists, loginHint };
+  const stored = await authService.storeChannel(channelData, accessToken, expiresIn);
+
+  // If user authenticated a different channel than expected, note it
+  return stored;
 }
 
 async function handleExpandProductLimit() {

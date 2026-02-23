@@ -56,8 +56,7 @@ class CreditsService {
       this.notifyListeners(data);
 
       return data;
-    } catch (error) {
-      console.error('[Credits] getBalance failed:', error.message);
+    } catch {
       const stored = await chrome.storage.local.get([CREDITS_STORAGE_KEY]);
       return stored[CREDITS_STORAGE_KEY] || { available: 0, used: 0, purchased: 0, monthlyAllocation: 0 };
     }
@@ -109,8 +108,10 @@ class CreditsService {
       });
 
       if (!response.ok) {
+        const bodyText = await response.text();
         if (response.status === 402) {
-          const data = await response.json().catch(() => ({}));
+          let data = {};
+          try { data = JSON.parse(bodyText); } catch {}
           return {
             success: false,
             creditsRemaining: data.creditsAvailable || 0,
@@ -140,7 +141,7 @@ class CreditsService {
       this.notifyListeners(updatedCredits);
 
       return { success: true, creditsRemaining: data.creditsRemaining };
-    } catch (error) {
+    } catch {
       return { success: false, error: 'network_error' };
     }
   }

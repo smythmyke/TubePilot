@@ -167,14 +167,113 @@ document.addEventListener('DOMContentLoaded', async () => {
     showLoggedOut();
   });
 
-  // Buy credits
-  buyCreditsBtn.addEventListener('click', async () => {
-    const result = await chrome.runtime.sendMessage({ type: 'BUY_CREDITS' });
-    if (result && result.checkoutUrl) {
-      chrome.tabs.create({ url: result.checkoutUrl });
-      window.close();
-    }
+  // --- Buy Credits Modal ---
+  const creditsModal = document.getElementById('credits-modal');
+  const creditPacksContainer = document.getElementById('credit-packs');
+  const buyNowBtn = document.getElementById('buy-now-btn');
+  const cancelModalBtn = document.getElementById('cancel-modal-btn');
+  let creditPacks = [];
+  let selectedPackId = null;
+
+  buyCreditsBtn.addEventListener('click', () => showCreditsModal());
+
+  cancelModalBtn.addEventListener('click', () => hideCreditsModal());
+
+  creditsModal.addEventListener('click', (e) => {
+    if (e.target === creditsModal) hideCreditsModal();
   });
+
+  buyNowBtn.addEventListener('click', () => purchaseCredits());
+
+  async function showCreditsModal() {
+    selectedPackId = null;
+    buyNowBtn.disabled = true;
+    creditsModal.classList.remove('hidden');
+    await loadCreditPacks();
+  }
+
+  function hideCreditsModal() {
+    creditsModal.classList.add('hidden');
+  }
+
+  async function loadCreditPacks() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_CREDIT_PACKS' });
+      if (response.success && response.packs && response.packs.length > 0) {
+        creditPacks = response.packs;
+      } else {
+        creditPacks = getDefaultPacks();
+      }
+    } catch {
+      creditPacks = getDefaultPacks();
+    }
+    renderCreditPacks();
+  }
+
+  function getDefaultPacks() {
+    return [
+      { id: 'starter', name: 'Starter Pack', credits: 50, price: 199, priceFormatted: '$1.99', badge: null },
+      { id: 'standard', name: 'Standard Pack', credits: 150, price: 499, priceFormatted: '$4.99', badge: 'popular' },
+      { id: 'pro', name: 'Pro Pack', credits: 400, price: 1199, priceFormatted: '$11.99', badge: null },
+      { id: 'power', name: 'Power Pack', credits: 1000, price: 2499, priceFormatted: '$24.99', badge: 'best_value' }
+    ];
+  }
+
+  function renderCreditPacks() {
+    creditPacksContainer.innerHTML = creditPacks.map(pack => {
+      const priceFormatted = pack.priceFormatted || '$' + (pack.price / 100).toFixed(2);
+      const badgeHtml = pack.badge
+        ? `<span class="pack-badge ${pack.badge === 'popular' ? 'popular' : 'best-value'}">${pack.badge === 'popular' ? 'Popular' : 'Best Value'}</span>`
+        : '';
+      return `
+        <label class="pack" data-pack-id="${pack.id}">
+          <input type="radio" name="pack" value="${pack.id}">
+          <span class="pack-info">
+            <strong>${pack.name} ${badgeHtml}</strong>
+            <span class="pack-detail">${pack.credits} credits (~${pack.credits} generations)</span>
+          </span>
+          <span class="pack-price">${priceFormatted}</span>
+        </label>
+      `;
+    }).join('');
+
+    creditPacksContainer.querySelectorAll('.pack').forEach(el => {
+      el.addEventListener('click', () => {
+        creditPacksContainer.querySelectorAll('.pack').forEach(p => p.classList.remove('selected'));
+        el.classList.add('selected');
+        el.querySelector('input').checked = true;
+        selectedPackId = el.dataset.packId;
+        buyNowBtn.disabled = false;
+      });
+    });
+  }
+
+  async function purchaseCredits() {
+    if (!selectedPackId) return;
+
+    buyNowBtn.disabled = true;
+    buyNowBtn.textContent = 'Processing...';
+
+    try {
+      const result = await chrome.runtime.sendMessage({
+        type: 'BUY_CREDITS',
+        packId: selectedPackId
+      });
+
+      if (result && result.success && result.checkoutUrl) {
+        chrome.tabs.create({ url: result.checkoutUrl });
+        window.close();
+      } else {
+        buyNowBtn.textContent = result?.error || 'Failed — try again';
+        buyNowBtn.disabled = false;
+        setTimeout(() => { buyNowBtn.textContent = 'Buy Now'; }, 2500);
+      }
+    } catch (err) {
+      buyNowBtn.textContent = 'Error — try again';
+      buyNowBtn.disabled = false;
+      setTimeout(() => { buyNowBtn.textContent = 'Buy Now'; }, 2500);
+    }
+  }
 
   // Open panel on current YouTube Studio page
   const openPanelBtn = document.getElementById('open-panel-btn');
@@ -183,8 +282,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     openPanelBtn.textContent = 'Opening...';
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || !tab.url || !tab.url.match(/studio\.youtube\.com\/video\/[^/]+\/edit/)) {
-        openPanelBtn.textContent = 'Navigate to a YouTube Studio edit page';
+      if (!tab || !tab.url || !tab.url.match(/studio\.youtube\.com/)) {
+        openPanelBtn.textContent = 'Navigate to YouTube Studio';
+        setTimeout(() => {
+          openPanelBtn.textContent = 'Open Panel on This Page';
+          openPanelBtn.disabled = false;
+        }, 2000);
+        return;
+      }
+      const pageCheck = await chrome.tabs.sendMessage(tab.id, { type: 'CHECK_PAGE' });
+      if (!pageCheck || (!pageCheck.hasCreateButton && !pageCheck.isEditPage)) {
+        openPanelBtn.textContent = 'No CREATE button found on this page';
         setTimeout(() => {
           openPanelBtn.textContent = 'Open Panel on This Page';
           openPanelBtn.disabled = false;
@@ -196,7 +304,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.close();
       } else {
         const msg = response?.error === 'already_open' ? 'Panel is already open'
-          : response?.error === 'not_edit_page' ? 'Navigate to a YouTube Studio edit page'
           : 'Could not open panel';
         openPanelBtn.textContent = msg;
         setTimeout(() => {
@@ -205,11 +312,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 2000);
       }
     } catch (err) {
-      openPanelBtn.textContent = 'Not on a YouTube Studio page';
+      // Content script not loaded — try injecting it
+      if (err.message.includes('Receiving end does not exist') || err.message.includes('Could not establish connection')) {
+        try {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab && tab.url && tab.url.match(/studio\.youtube\.com/)) {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              files: ['config.js', 'content/youtube-studio.js']
+            });
+            await chrome.scripting.insertCSS({
+              target: { tabId: tab.id },
+              files: ['content/styles.css']
+            });
+            // Wait for script to initialize, then retry
+            await new Promise(r => setTimeout(r, 500));
+            const pageCheck = await chrome.tabs.sendMessage(tab.id, { type: 'CHECK_PAGE' });
+            if (pageCheck && (pageCheck.hasCreateButton || pageCheck.isEditPage)) {
+              const response = await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_PANEL' });
+              if (response && response.success) { window.close(); return; }
+            }
+          }
+        } catch {
+          // Retry failed
+        }
+      }
+      openPanelBtn.textContent = 'Refresh this Studio tab and try again';
       setTimeout(() => {
         openPanelBtn.textContent = 'Open Panel on This Page';
         openPanelBtn.disabled = false;
-      }, 2000);
+      }, 3000);
     }
   });
 
