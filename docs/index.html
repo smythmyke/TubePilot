@@ -122,34 +122,27 @@
     /* ========== SCREENSHOTS ========== */
     .screenshots {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 24px;
+      max-width: 900px;
+      margin: 0 auto;
     }
     .screenshot-slot {
-      background: #3f3f3f;
-      border: 2px dashed #4a4a4a;
+      background: #1a1a1a;
+      border: 1px solid #4a4a4a;
       border-radius: 10px;
-      aspect-ratio: 16 / 10;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      gap: 8px;
-      color: #717171;
-      font-size: 0.95rem;
+      justify-content: flex-start;
       overflow: hidden;
       position: relative;
     }
     .screenshot-slot img {
       width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: 8px;
-      display: none;
-    }
-    .screenshot-slot .placeholder-icon {
-      font-size: 2.4rem;
-      opacity: 0.4;
+      height: auto;
+      border-radius: 10px 10px 0 0;
+      display: block;
     }
     .screenshot-label {
       font-weight: 600;
@@ -157,6 +150,8 @@
       font-size: 0.85rem;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      padding: 12px 8px;
+      text-align: center;
     }
 
     /* ========== HOW IT WORKS ========== */
@@ -198,9 +193,9 @@
     /* ========== PRICING ========== */
     .pricing-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 20px;
-      max-width: 840px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      max-width: 960px;
       margin: 0 auto;
     }
     .pricing-card {
@@ -369,12 +364,15 @@
     .footer-links { margin-bottom: 8px; }
 
     /* ========== RESPONSIVE ========== */
+    @media (max-width: 960px) {
+      .pricing-grid { grid-template-columns: repeat(2, 1fr); max-width: 500px; }
+    }
     @media (max-width: 768px) {
       .hero-brand h1 { font-size: 2.4rem; }
       .hero-tagline { font-size: 1.15rem; }
       .features { grid-template-columns: 1fr; }
-      .screenshots { grid-template-columns: 1fr; }
-      .pricing-grid { grid-template-columns: 1fr; max-width: 340px; }
+      .screenshots { grid-template-columns: 1fr; max-width: 360px; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 300px; }
       .section-title { font-size: 1.6rem; }
     }
     @media (max-width: 480px) {
@@ -406,24 +404,16 @@
       <p class="section-subtitle">TubePilot lives inside YouTube Studio. No new tabs, no copy-paste.</p>
       <div class="screenshots">
         <div class="screenshot-slot">
-          <!-- Replace with: <img src="screenshot-panel.png" alt="TubePilot panel in YouTube Studio"> -->
-          <span class="placeholder-icon">&#9654;</span>
-          <span class="screenshot-label">Panel inside YouTube Studio</span>
+          <img src="screenshot-panel.jpg" alt="TubePilot panel in YouTube Studio with channel connection, upload options, and visibility settings">
+          <span class="screenshot-label">YouTube Studio Panel</span>
         </div>
         <div class="screenshot-slot">
-          <!-- Replace with: <img src="screenshot-results.png" alt="Generated metadata results"> -->
-          <span class="placeholder-icon">&#9998;</span>
-          <span class="screenshot-label">Generated metadata results</span>
+          <img src="screenshot-generator.jpg" alt="TubePilot generated metadata showing SEO-optimized title, description, tags, and category">
+          <span class="screenshot-label">AI-Generated Metadata</span>
         </div>
         <div class="screenshot-slot">
-          <!-- Replace with: <img src="screenshot-upload.png" alt="Upload automation wizard"> -->
-          <span class="placeholder-icon">&#8682;</span>
-          <span class="screenshot-label">Upload automation</span>
-        </div>
-        <div class="screenshot-slot">
-          <!-- Replace with: <img src="screenshot-popup.png" alt="Extension popup"> -->
-          <span class="placeholder-icon">&#9881;</span>
-          <span class="screenshot-label">Extension popup</span>
+          <img src="screenshot-products.jpg" alt="TubePilot extension popup showing products tab with saved products">
+          <span class="screenshot-label">Product Management</span>
         </div>
       </div>
     </div>
@@ -491,41 +481,49 @@
       <p class="section-subtitle">1 credit = 1 metadata generation. Buy what you need, use when you want.</p>
       <div class="pricing-grid">
         <div class="pricing-card">
-          <div class="pricing-name">Starter</div>
-          <div class="pricing-credits">25 <span>credits</span></div>
-          <div class="pricing-price">$X.XX</div>
+          <div class="pricing-name">Starter Pack</div>
+          <div class="pricing-credits">50 <span>credits</span></div>
+          <div class="pricing-price">$1.99 <span>one-time</span></div>
           <ul class="pricing-details">
-            <li>AI title, description, tags</li>
-            <li>Channel-aware generation</li>
-            <li>Fill form + copy all</li>
+            <li>~50 metadata generations</li>
+            <li>All features included</li>
             <li>Credits never expire</li>
           </ul>
         </div>
         <div class="pricing-card featured">
-          <div class="pricing-badge">Most Popular</div>
-          <div class="pricing-name">Standard</div>
-          <div class="pricing-credits">75 <span>credits</span></div>
-          <div class="pricing-price">$X.XX</div>
+          <div class="pricing-badge">Popular</div>
+          <div class="pricing-name">Standard Pack</div>
+          <div class="pricing-credits">150 <span>credits</span></div>
+          <div class="pricing-price">$4.99 <span>one-time</span></div>
           <ul class="pricing-details">
-            <li>Everything in Starter</li>
-            <li>Upload automation</li>
-            <li>Product integration</li>
-            <li>Best value per credit</li>
+            <li>~150 metadata generations</li>
+            <li>Save 17% per credit</li>
+            <li>Credits never expire</li>
           </ul>
         </div>
         <div class="pricing-card">
-          <div class="pricing-name">Pro</div>
-          <div class="pricing-credits">200 <span>credits</span></div>
-          <div class="pricing-price">$X.XX</div>
+          <div class="pricing-name">Pro Pack</div>
+          <div class="pricing-credits">400 <span>credits</span></div>
+          <div class="pricing-price">$11.99 <span>one-time</span></div>
           <ul class="pricing-details">
-            <li>Everything in Standard</li>
-            <li>Bulk creator workflow</li>
-            <li>Priority support</li>
-            <li>Lowest cost per credit</li>
+            <li>~400 metadata generations</li>
+            <li>Save 25% per credit</li>
+            <li>Credits never expire</li>
+          </ul>
+        </div>
+        <div class="pricing-card featured">
+          <div class="pricing-badge">Best Value</div>
+          <div class="pricing-name">Power Pack</div>
+          <div class="pricing-credits">1,000 <span>credits</span></div>
+          <div class="pricing-price">$24.99 <span>one-time</span></div>
+          <ul class="pricing-details">
+            <li>~1,000 metadata generations</li>
+            <li>Save 37% per credit</li>
+            <li>Credits never expire</li>
           </ul>
         </div>
       </div>
-      <p class="pricing-note">All features available at every tier. Credits never expire. Includes free starting credits on sign-up.</p>
+      <p class="pricing-note">No subscriptions. No monthly fees. Buy credits when you need them — they never expire. Free credits included on sign-up.</p>
     </div>
   </section>
 
