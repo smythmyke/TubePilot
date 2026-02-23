@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — TubePilot</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+      color: #1a1a2e;
+      background: #f8f9fa;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 32px 0;
+    }
+    header h1 { font-size: 1.8rem; }
+    header a { color: #e94560; text-decoration: none; }
+    main { padding: 40px 0; }
+    h2 { font-size: 1.3rem; margin: 28px 0 12px; color: #1a1a2e; }
+    h3 { font-size: 1.1rem; margin: 20px 0 8px; }
+    p { margin-bottom: 12px; }
+    ul { padding-left: 24px; margin-bottom: 12px; }
+    li { margin-bottom: 6px; }
+    .effective { font-style: italic; color: #6c757d; margin-bottom: 24px; }
+    footer {
+      border-top: 1px solid #dee2e6;
+      padding: 24px 0;
+      text-align: center;
+      font-size: 0.9rem;
+      color: #6c757d;
+    }
+    footer a { color: #e94560; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1><a href="index.html">TubePilot</a> — Privacy Policy</h1>
+    </div>
+  </header>
+
+  <main class="container">
+    <p class="effective">Effective date: February 23, 2026</p>
+
+    <p>TubePilot ("we", "our", "the extension") is a Chrome browser extension that helps YouTube creators generate and manage video metadata. This privacy policy explains what data we access, how we use it, and your rights regarding that data.</p>
+
+    <h2>1. Google Account Data</h2>
+    <p>When you sign in, we request access to your Google account through Chrome's identity API. We access:</p>
+    <ul>
+      <li><strong>Email address</strong> — to identify your account and manage your session</li>
+      <li><strong>Display name and profile picture</strong> — to show your identity in the extension UI</li>
+    </ul>
+    <p>This data is sent to our backend server to create and maintain your session. We do not sell or share this data with third parties beyond what is described in this policy.</p>
+
+    <h2>2. YouTube Data</h2>
+    <p>TubePilot uses the <a href="https://developers.google.com/youtube/v3">YouTube Data API v3</a> to interact with your YouTube account. YouTube access is requested separately from sign-in — only when you use YouTube-specific features. We access:</p>
+
+    <h3>Data We Read</h3>
+    <ul>
+      <li><strong>Channel information</strong> — channel name, description, keywords, subscriber count, video count, default language, country, and avatar</li>
+      <li><strong>Video metadata</strong> — title, description, tags, category, and privacy status for videos you choose to edit</li>
+      <li><strong>Playlists</strong> — playlist names and IDs for your channel</li>
+    </ul>
+
+    <h3>Data We Modify</h3>
+    <ul>
+      <li><strong>Video metadata</strong> — title, description, tags, and category, only when you explicitly click "Fill Form" or "Apply" in the extension</li>
+      <li><strong>Playlist membership</strong> — adding videos to playlists you select</li>
+    </ul>
+    <p>TubePilot never modifies your content without your explicit action. You always review generated metadata before it is applied.</p>
+
+    <h3>Data Storage and Retention</h3>
+    <ul>
+      <li>Channel information is cached locally in your browser (via <code>chrome.storage.local</code>) to reduce API calls</li>
+      <li>Cached YouTube data is automatically refreshed or cleared after <strong>30 days</strong> in compliance with the YouTube API Services Terms of Service</li>
+      <li>Video metadata is read on-demand and is not stored persistently</li>
+      <li>No YouTube data is stored on our backend servers — all YouTube API calls are made directly from the extension to Google's servers using your OAuth token</li>
+    </ul>
+
+    <h2>3. Third-Party Services</h2>
+
+    <h3>Backend API</h3>
+    <p>TubePilot sends video descriptions and channel context (channel name, keywords) to our backend API for AI-powered metadata generation. This server:</p>
+    <ul>
+      <li>Processes your input to generate titles, descriptions, and tags</li>
+      <li>Does not store video descriptions or generated metadata beyond the duration of the request</li>
+      <li>Manages your account session and credit balance</li>
+    </ul>
+
+    <h3>Google APIs</h3>
+    <p>TubePilot's use of Google APIs, including the YouTube Data API, adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. See also <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.</p>
+
+    <h2>4. Data We Do NOT Collect</h2>
+    <ul>
+      <li>We do not access, download, or cache your video files or audio content</li>
+      <li>We do not access your YouTube comments, likes, or watch history</li>
+      <li>We do not track your browsing activity outside of YouTube Studio</li>
+      <li>We do not use your data for advertising or sell it to third parties</li>
+    </ul>
+
+    <h2>5. Data Security</h2>
+    <p>All communication between the extension and external services uses HTTPS encryption. OAuth tokens are stored in Chrome's local storage and are never transmitted to our backend. Your YouTube credentials are managed entirely by Google's OAuth system.</p>
+
+    <h2>6. Your Rights and Controls</h2>
+    <ul>
+      <li><strong>Revoke YouTube access</strong> — visit <a href="https://myaccount.google.com/permissions">Google Account Permissions</a> to remove TubePilot's access at any time</li>
+      <li><strong>Sign out</strong> — signing out of TubePilot clears your local session data</li>
+      <li><strong>Uninstall</strong> — removing the extension deletes all locally stored data</li>
+      <li><strong>Data deletion request</strong> — contact us to request deletion of your account data from our backend</li>
+    </ul>
+    <p>When you revoke access, we will delete all stored data associated with your account within 7 days.</p>
+
+    <h2>7. Children's Privacy</h2>
+    <p>TubePilot is not intended for use by children under 13. We do not knowingly collect data from children. If you believe a child has provided us with data, please contact us for removal.</p>
+
+    <h2>8. Changes to This Policy</h2>
+    <p>We may update this privacy policy from time to time. Changes will be posted on this page with an updated effective date. Continued use of TubePilot after changes constitutes acceptance of the updated policy.</p>
+
+    <h2>9. Contact</h2>
+    <p>For questions or concerns about this privacy policy or your data:</p>
+    <ul>
+      <li>GitHub: <a href="https://github.com/smythmyke/TubePilot/issues">Open an issue</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>
+        <a href="index.html">Home</a> &middot;
+        <a href="terms.html">Terms of Service</a> &middot;
+        <a href="https://github.com/smythmyke/TubePilot">GitHub</a>
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

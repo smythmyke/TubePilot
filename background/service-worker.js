@@ -94,6 +94,9 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+// --- Data freshness check (YouTube API ToS: 30-day max) ---
+enforceDataFreshness().catch(() => {});
+
 // --- Detect Stripe purchase redirect ---
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -209,6 +212,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       authService.getYouTubeToken(false)
         .then(token => sendResponse({ granted: true }))
         .catch(() => sendResponse({ granted: false }));
+      return true;
+
+    case 'FETCH_CHANNEL_INFO':
+      handleFetchChannelInfo()
+        .then(data => sendResponse({ success: true, data }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'FETCH_PLAYLISTS':
+      handleFetchPlaylists()
+        .then(playlists => sendResponse({ success: true, playlists }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'GET_CHANNEL_CACHE':
+      enforceDataFreshness().then(() => {
+        chrome.storage.local.get(['tubepilot_channel'], (result) => {
+          sendResponse({ data: result.tubepilot_channel || null });
+        });
+      }).catch(() => {
+        sendResponse({ data: null });
+      });
+      return true;
+
+    case 'REFRESH_CHANNEL':
+      handleRefreshChannel()
+        .then(data => sendResponse({ success: true, data }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'ADD_TO_PLAYLIST':
+      handleAddToPlaylist(message.playlistId, message.videoId)
+        .then(result => sendResponse({ success: true, result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case 'GET_QUOTA_STATUS':
+      youtubeApiService.getQuotaStatus()
+        .then(status => sendResponse({ success: true, ...status }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
   }
 });
@@ -350,6 +393,74 @@ async function handleApplyViaApi(videoId, metadata) {
   }
 
   return await youtubeApiService.applyMetadata(videoId, metadata, token);
+}
+
+// --- YouTube Channel Data ---
+
+async function getYouTubeTokenSilentOrInteractive(interactive) {
+  try {
+    return await authService.getYouTubeToken(false);
+  } catch {
+    if (interactive) return await authService.getYouTubeToken(true);
+    throw new Error('YouTube scope not granted');
+  }
+}
+
+async function handleFetchChannelInfo() {
+  const token = await getYouTubeTokenSilentOrInteractive(true);
+  const channelInfo = await youtubeApiService.getChannelInfo(token);
+  const playlists = await youtubeApiService.getPlaylists(token);
+
+  const data = {
+    ...channelInfo,
+    playlists,
+    lastFetched: Date.now()
+  };
+
+  await chrome.storage.local.set({ tubepilot_channel: data });
+  return data;
+}
+
+async function handleFetchPlaylists() {
+  const token = await getYouTubeTokenSilentOrInteractive(false);
+  const playlists = await youtubeApiService.getPlaylists(token);
+
+  // Update just the playlists in cached channel data
+  const stored = await chrome.storage.local.get(['tubepilot_channel']);
+  const existing = stored.tubepilot_channel || {};
+  existing.playlists = playlists;
+  existing.lastFetched = Date.now();
+  await chrome.storage.local.set({ tubepilot_channel: existing });
+
+  return playlists;
+}
+
+async function handleRefreshChannel() {
+  const token = await getYouTubeTokenSilentOrInteractive(false);
+  const channelInfo = await youtubeApiService.getChannelInfo(token);
+  const playlists = await youtubeApiService.getPlaylists(token);
+
+  const stored = await chrome.storage.local.get(['tubepilot_channel']);
+  const previous = stored.tubepilot_channel || {};
+  const channelChanged = previous.channelId && previous.channelId !== channelInfo.channelId;
+
+  const data = {
+    ...channelInfo,
+    playlists,
+    lastFetched: Date.now()
+  };
+
+  await chrome.storage.local.set({ tubepilot_channel: data });
+
+  return { ...data, channelChanged };
+}
+
+async function handleAddToPlaylist(playlistId, videoId) {
+  if (!playlistId) throw new Error('No playlist ID provided');
+  if (!videoId) throw new Error('No video ID provided');
+
+  const token = await getYouTubeTokenSilentOrInteractive(false);
+  return await youtubeApiService.addToPlaylist(playlistId, videoId, token);
 }
 
 async function handleExpandProductLimit() {

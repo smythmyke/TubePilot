@@ -12,7 +12,9 @@
     "client_id": "815700675676-0pq07d55g7nrvlghroislq2lrvvcbrso.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/userinfo.email",
-      "https://www.googleapis.com/auth/userinfo.profile"
+      "https://www.googleapis.com/auth/userinfo.profile",
+      "https://www.googleapis.com/auth/youtube.force-ssl",
+      "https://www.googleapis.com/auth/youtube.upload"
     ]
   },
   "background": {
