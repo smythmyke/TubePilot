@@ -4,101 +4,218 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TubePilot — AI-Powered YouTube Metadata Generator</title>
+  <link rel="icon" type="image/png" href="icon.png">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
-      color: #1a1a2e;
-      background: #f8f9fa;
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #f1f1f1;
+      background: #282828;
       line-height: 1.6;
     }
-    .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+    a { color: #cc0000; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: 840px; margin: 0 auto; padding: 0 24px; }
+
+    /* Header */
     header {
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      color: #fff;
-      padding: 48px 0;
+      background: #212121;
+      border-bottom: 2px solid #cc0000;
+      padding: 40px 0;
       text-align: center;
     }
-    header h1 { font-size: 2.4rem; margin-bottom: 12px; }
-    header p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto; }
-    main { padding: 48px 0; }
-    section { margin-bottom: 40px; }
-    h2 { font-size: 1.4rem; margin-bottom: 12px; color: #1a1a2e; }
-    ul { padding-left: 24px; margin-bottom: 16px; }
-    li { margin-bottom: 8px; }
-    .cta {
-      display: inline-block;
-      background: #e94560;
-      color: #fff;
-      padding: 12px 32px;
-      border-radius: 6px;
-      text-decoration: none;
-      font-weight: 600;
-      margin-top: 16px;
+    .header-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
     }
-    .cta:hover { background: #d63851; }
+    .header-brand img {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+    }
+    .header-brand h1 {
+      font-size: 2.4rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .header-tagline {
+      font-size: 1.15rem;
+      color: #aaa;
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    /* Main */
+    main { padding: 48px 0; }
+
+    /* Feature cards */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 24px 0 40px;
+    }
+    .feature-card {
+      background: #3f3f3f;
+      border: 1px solid #4a4a4a;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .feature-card h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #cc0000;
+      margin-bottom: 6px;
+    }
+    .feature-card p {
+      font-size: 0.9rem;
+      color: #aaa;
+      line-height: 1.5;
+    }
+
+    /* Section */
+    section { margin-bottom: 40px; }
+    h2 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: #f1f1f1;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #3f3f3f;
+    }
+    .steps {
+      counter-reset: step;
+      list-style: none;
+      padding: 0;
+    }
+    .steps li {
+      counter-increment: step;
+      padding: 10px 0 10px 44px;
+      position: relative;
+      color: #aaa;
+      font-size: 0.95rem;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 8px;
+      width: 28px;
+      height: 28px;
+      background: #3f3f3f;
+      border: 1px solid #4a4a4a;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #cc0000;
+    }
+    .steps li strong { color: #f1f1f1; }
+
+    /* Info box */
+    .info-box {
+      background: #1a2a3a;
+      border: 1px solid #2a4a6a;
+      border-radius: 8px;
+      padding: 16px 20px;
+      font-size: 0.9rem;
+      color: #7aafdf;
+      line-height: 1.6;
+    }
+    .info-box a { color: #7aafdf; text-decoration: underline; }
+
+    /* Footer */
     footer {
-      border-top: 1px solid #dee2e6;
+      border-top: 1px solid #3f3f3f;
       padding: 24px 0;
       text-align: center;
-      font-size: 0.9rem;
-      color: #6c757d;
+      font-size: 0.85rem;
+      color: #717171;
     }
-    footer a { color: #e94560; text-decoration: none; }
-    footer a:hover { text-decoration: underline; }
+    footer a { color: #aaa; }
+    footer a:hover { color: #cc0000; }
+    .footer-links { margin-bottom: 8px; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .features { grid-template-columns: 1fr; }
+      .header-brand h1 { font-size: 1.8rem; }
+    }
   </style>
 </head>
 <body>
   <header>
     <div class="container">
-      <h1>TubePilot</h1>
-      <p>AI-powered YouTube metadata generator. Create SEO-optimized titles, descriptions, and tags for your videos — right inside YouTube Studio.</p>
+      <div class="header-brand">
+        <img src="icon.png" alt="TubePilot">
+        <h1>TubePilot</h1>
+      </div>
+      <p class="header-tagline">AI-powered YouTube metadata generator. SEO-optimized titles, descriptions, and tags — right inside YouTube Studio.</p>
     </div>
   </header>
 
   <main class="container">
     <section>
-      <h2>What TubePilot Does</h2>
-      <ul>
-        <li>Generates optimized titles, descriptions, and tags using AI</li>
-        <li>Works directly inside YouTube Studio — no tab switching</li>
-        <li>Reads your channel context (name, keywords, audience) for tailored results</li>
-        <li>Fills metadata into YouTube Studio forms with one click</li>
-        <li>Manages playlists and upload settings</li>
-        <li>Supports product integration for affiliate and sponsored content</li>
-      </ul>
+      <h2>Features</h2>
+      <div class="features">
+        <div class="feature-card">
+          <h3>AI Metadata Generation</h3>
+          <p>Generate SEO-optimized titles, descriptions, tags, and categories powered by AI. Tailored to your channel and audience.</p>
+        </div>
+        <div class="feature-card">
+          <h3>YouTube Studio Integration</h3>
+          <p>Works directly inside YouTube Studio via a slide-out panel. One click to fill your video metadata — no tab switching.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Channel-Aware Context</h3>
+          <p>Reads your channel name, keywords, description, and audience to generate metadata that matches your brand voice.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Upload Automation</h3>
+          <p>Select a video file, generate metadata, and upload — TubePilot fills the details, sets visibility, and publishes for you.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Product Integration</h3>
+          <p>Add products with SEO keywords. TubePilot weaves natural mentions into your descriptions for affiliate and sponsored content.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Playlist Management</h3>
+          <p>Select a playlist before uploading. TubePilot automatically adds your video to the chosen playlist after publishing.</p>
+        </div>
+      </div>
     </section>
 
     <section>
       <h2>How It Works</h2>
-      <ul>
-        <li>Install the Chrome extension</li>
-        <li>Sign in with your Google account</li>
-        <li>Grant YouTube access when prompted (only when you use YouTube features)</li>
-        <li>Open YouTube Studio and describe your video</li>
-        <li>TubePilot generates metadata and fills the form for you</li>
-      </ul>
+      <ol class="steps">
+        <li><strong>Install</strong> the TubePilot Chrome extension</li>
+        <li><strong>Sign in</strong> with your Google account</li>
+        <li><strong>Connect YouTube</strong> when prompted — only requested when you use YouTube features</li>
+        <li><strong>Describe your video</strong> in the TubePilot panel on any YouTube Studio page</li>
+        <li><strong>Generate and apply</strong> — review the AI-generated metadata, then fill the form or upload with one click</li>
+      </ol>
     </section>
 
     <section>
       <h2>YouTube Data Access</h2>
-      <p>TubePilot uses the YouTube Data API v3 to read and update your video metadata, channel information, and playlists. You remain in full control — TubePilot never publishes or modifies content without your explicit action. See our <a href="privacy.html">Privacy Policy</a> for full details on data handling.</p>
-    </section>
-
-    <section>
-      <h2>Get Started</h2>
-      <p>TubePilot is available on the Chrome Web Store.</p>
+      <div class="info-box">
+        TubePilot uses the <a href="https://developers.google.com/youtube/v3">YouTube Data API v3</a> to read and update your video metadata, channel information, and playlists. You remain in full control — TubePilot never publishes or modifies content without your explicit action. All YouTube API calls go directly from the extension to Google's servers. See our <a href="privacy.html">Privacy Policy</a> for full details.
+      </div>
     </section>
   </main>
 
   <footer>
     <div class="container">
-      <p>
+      <div class="footer-links">
         <a href="privacy.html">Privacy Policy</a> &middot;
         <a href="terms.html">Terms of Service</a> &middot;
         <a href="https://github.com/smythmyke/TubePilot">GitHub</a>
-      </p>
-      <p style="margin-top: 8px;">&copy; 2025 TubePilot. All rights reserved.</p>
+      </div>
+      <p>&copy; 2026 TubePilot</p>
     </div>
   </footer>
 </body>
