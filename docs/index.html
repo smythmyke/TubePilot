@@ -12,202 +12,584 @@
       color: #f1f1f1;
       background: #282828;
       line-height: 1.6;
+      font-size: 16px;
     }
     a { color: #cc0000; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .container { max-width: 840px; margin: 0 auto; padding: 0 24px; }
 
-    /* Header */
-    header {
+    .container { max-width: 960px; margin: 0 auto; padding: 0 28px; }
+    .container-wide { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+    /* ========== HERO ========== */
+    .hero {
       background: #212121;
-      border-bottom: 2px solid #cc0000;
-      padding: 40px 0;
+      border-bottom: 3px solid #cc0000;
+      padding: 72px 0 64px;
       text-align: center;
     }
-    .header-brand {
+    .hero-brand {
       display: inline-flex;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 16px;
+      gap: 20px;
+      margin-bottom: 24px;
     }
-    .header-brand img {
-      width: 64px;
-      height: 64px;
+    .hero-brand img {
+      width: 80px;
+      height: 80px;
       border-radius: 50%;
     }
-    .header-brand h1 {
-      font-size: 2.4rem;
+    .hero-brand h1 {
+      font-size: 3.5rem;
       font-weight: 700;
       color: #fff;
+      letter-spacing: -1px;
     }
-    .header-tagline {
-      font-size: 1.15rem;
+    .hero-tagline {
+      font-size: 1.4rem;
       color: #aaa;
-      max-width: 560px;
-      margin: 0 auto;
+      max-width: 640px;
+      margin: 0 auto 36px;
+      line-height: 1.5;
+    }
+    .hero-cta {
+      display: inline-block;
+      background: #cc0000;
+      color: #fff;
+      padding: 16px 40px;
+      border-radius: 8px;
+      font-size: 1.15rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .hero-cta:hover { background: #a00; text-decoration: none; }
+    .hero-sub {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: #717171;
     }
 
-    /* Main */
-    main { padding: 48px 0; }
+    /* ========== SECTIONS ========== */
+    section { padding: 64px 0; }
+    section:nth-child(even) { background: #212121; }
 
-    /* Feature cards */
+    .section-title {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #fff;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .section-subtitle {
+      font-size: 1.1rem;
+      color: #aaa;
+      text-align: center;
+      max-width: 600px;
+      margin: 0 auto 40px;
+    }
+
+    /* ========== FEATURES ========== */
     .features {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-      margin: 24px 0 40px;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
     }
     .feature-card {
       background: #3f3f3f;
       border: 1px solid #4a4a4a;
-      border-radius: 8px;
-      padding: 20px;
+      border-radius: 10px;
+      padding: 28px 24px;
+      transition: border-color 0.15s;
+    }
+    .feature-card:hover { border-color: #cc0000; }
+    .feature-icon {
+      font-size: 1.8rem;
+      margin-bottom: 12px;
+      display: block;
     }
     .feature-card h3 {
-      font-size: 0.95rem;
+      font-size: 1.1rem;
       font-weight: 600;
-      color: #cc0000;
-      margin-bottom: 6px;
+      color: #fff;
+      margin-bottom: 8px;
     }
     .feature-card p {
-      font-size: 0.9rem;
+      font-size: 0.95rem;
       color: #aaa;
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
-    /* Section */
-    section { margin-bottom: 40px; }
-    h2 {
-      font-size: 1.3rem;
-      font-weight: 600;
-      color: #f1f1f1;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid #3f3f3f;
+    /* ========== SCREENSHOTS ========== */
+    .screenshots {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
     }
+    .screenshot-slot {
+      background: #3f3f3f;
+      border: 2px dashed #4a4a4a;
+      border-radius: 10px;
+      aspect-ratio: 16 / 10;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #717171;
+      font-size: 0.95rem;
+      overflow: hidden;
+      position: relative;
+    }
+    .screenshot-slot img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+      display: none;
+    }
+    .screenshot-slot .placeholder-icon {
+      font-size: 2.4rem;
+      opacity: 0.4;
+    }
+    .screenshot-label {
+      font-weight: 600;
+      color: #aaa;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ========== HOW IT WORKS ========== */
     .steps {
       counter-reset: step;
       list-style: none;
       padding: 0;
+      max-width: 640px;
+      margin: 0 auto;
     }
     .steps li {
       counter-increment: step;
-      padding: 10px 0 10px 44px;
+      padding: 16px 0 16px 64px;
       position: relative;
+      font-size: 1.05rem;
       color: #aaa;
-      font-size: 0.95rem;
+      border-left: 2px solid #3f3f3f;
+      margin-left: 20px;
     }
+    .steps li:last-child { border-left-color: transparent; }
     .steps li::before {
       content: counter(step);
       position: absolute;
-      left: 0;
-      top: 8px;
-      width: 28px;
-      height: 28px;
-      background: #3f3f3f;
-      border: 1px solid #4a4a4a;
+      left: -21px;
+      top: 14px;
+      width: 40px;
+      height: 40px;
+      background: #cc0000;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: #cc0000;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #fff;
     }
-    .steps li strong { color: #f1f1f1; }
+    .steps li strong { color: #f1f1f1; font-size: 1.1rem; }
 
-    /* Info box */
+    /* ========== PRICING ========== */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      max-width: 840px;
+      margin: 0 auto;
+    }
+    .pricing-card {
+      background: #3f3f3f;
+      border: 1px solid #4a4a4a;
+      border-radius: 10px;
+      padding: 32px 24px;
+      text-align: center;
+      position: relative;
+    }
+    .pricing-card.featured {
+      border-color: #cc0000;
+      border-width: 2px;
+    }
+    .pricing-badge {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #cc0000;
+      color: #fff;
+      padding: 3px 14px;
+      border-radius: 10px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .pricing-name {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+    .pricing-credits {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: #cc0000;
+      margin: 12px 0 4px;
+    }
+    .pricing-credits span {
+      font-size: 0.9rem;
+      color: #aaa;
+      font-weight: 400;
+    }
+    .pricing-price {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #fff;
+      margin: 8px 0 16px;
+    }
+    .pricing-price span {
+      font-size: 0.85rem;
+      color: #717171;
+      font-weight: 400;
+    }
+    .pricing-details {
+      list-style: none;
+      padding: 0;
+      text-align: left;
+      margin-bottom: 20px;
+    }
+    .pricing-details li {
+      padding: 6px 0;
+      font-size: 0.9rem;
+      color: #aaa;
+      border-bottom: 1px solid #4a4a4a;
+    }
+    .pricing-details li:last-child { border-bottom: none; }
+    .pricing-details li::before {
+      content: "\2713  ";
+      color: #46d160;
+      font-weight: 700;
+    }
+    .pricing-note {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 0.9rem;
+      color: #717171;
+    }
+
+    /* ========== FAQ ========== */
+    .faq-list {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    .faq-item {
+      border-bottom: 1px solid #3f3f3f;
+      padding: 20px 0;
+    }
+    .faq-item:first-child { border-top: 1px solid #3f3f3f; }
+    .faq-q {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .faq-q::after {
+      content: "+";
+      font-size: 1.4rem;
+      color: #cc0000;
+      flex-shrink: 0;
+      transition: transform 0.2s;
+    }
+    .faq-item.open .faq-q::after {
+      content: "\2212";
+    }
+    .faq-a {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease, padding 0.3s ease;
+      font-size: 1rem;
+      color: #aaa;
+      line-height: 1.6;
+    }
+    .faq-item.open .faq-a {
+      max-height: 300px;
+      padding-top: 12px;
+    }
+
+    /* ========== BOTTOM CTA ========== */
+    .bottom-cta {
+      text-align: center;
+      padding: 64px 0;
+    }
+    .bottom-cta h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 12px;
+    }
+    .bottom-cta p {
+      font-size: 1.1rem;
+      color: #aaa;
+      margin-bottom: 28px;
+    }
+
+    /* ========== INFO BOX ========== */
     .info-box {
       background: #1a2a3a;
       border: 1px solid #2a4a6a;
       border-radius: 8px;
-      padding: 16px 20px;
-      font-size: 0.9rem;
+      padding: 18px 22px;
+      font-size: 0.95rem;
       color: #7aafdf;
       line-height: 1.6;
+      max-width: 720px;
+      margin: 0 auto;
     }
     .info-box a { color: #7aafdf; text-decoration: underline; }
 
-    /* Footer */
+    /* ========== FOOTER ========== */
     footer {
       border-top: 1px solid #3f3f3f;
-      padding: 24px 0;
+      padding: 28px 0;
       text-align: center;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
       color: #717171;
     }
     footer a { color: #aaa; }
     footer a:hover { color: #cc0000; }
     .footer-links { margin-bottom: 8px; }
 
-    /* Responsive */
-    @media (max-width: 600px) {
+    /* ========== RESPONSIVE ========== */
+    @media (max-width: 768px) {
+      .hero-brand h1 { font-size: 2.4rem; }
+      .hero-tagline { font-size: 1.15rem; }
       .features { grid-template-columns: 1fr; }
-      .header-brand h1 { font-size: 1.8rem; }
+      .screenshots { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 340px; }
+      .section-title { font-size: 1.6rem; }
+    }
+    @media (max-width: 480px) {
+      .hero-brand h1 { font-size: 2rem; }
+      .hero-brand img { width: 56px; height: 56px; }
+      .hero { padding: 48px 0 40px; }
     }
   </style>
 </head>
 <body>
-  <header>
+
+  <!-- ===== HERO ===== -->
+  <section class="hero">
     <div class="container">
-      <div class="header-brand">
+      <div class="hero-brand">
         <img src="icon.png" alt="TubePilot">
         <h1>TubePilot</h1>
       </div>
-      <p class="header-tagline">AI-powered YouTube metadata generator. SEO-optimized titles, descriptions, and tags — right inside YouTube Studio.</p>
+      <p class="hero-tagline">AI-powered metadata for your YouTube videos. SEO-optimized titles, descriptions, and tags — generated and applied right inside YouTube Studio.</p>
+      <a href="#" class="hero-cta">Add to Chrome — It's Free</a>
+      <p class="hero-sub">Chrome Extension &middot; 1 credit per generation &middot; Free credits to start</p>
     </div>
-  </header>
+  </section>
 
-  <main class="container">
-    <section>
-      <h2>Features</h2>
-      <div class="features">
-        <div class="feature-card">
-          <h3>AI Metadata Generation</h3>
-          <p>Generate SEO-optimized titles, descriptions, tags, and categories powered by AI. Tailored to your channel and audience.</p>
+  <!-- ===== SCREENSHOTS ===== -->
+  <section>
+    <div class="container-wide">
+      <h2 class="section-title">See It in Action</h2>
+      <p class="section-subtitle">TubePilot lives inside YouTube Studio. No new tabs, no copy-paste.</p>
+      <div class="screenshots">
+        <div class="screenshot-slot">
+          <!-- Replace with: <img src="screenshot-panel.png" alt="TubePilot panel in YouTube Studio"> -->
+          <span class="placeholder-icon">&#9654;</span>
+          <span class="screenshot-label">Panel inside YouTube Studio</span>
         </div>
-        <div class="feature-card">
-          <h3>YouTube Studio Integration</h3>
-          <p>Works directly inside YouTube Studio via a slide-out panel. One click to fill your video metadata — no tab switching.</p>
+        <div class="screenshot-slot">
+          <!-- Replace with: <img src="screenshot-results.png" alt="Generated metadata results"> -->
+          <span class="placeholder-icon">&#9998;</span>
+          <span class="screenshot-label">Generated metadata results</span>
         </div>
-        <div class="feature-card">
-          <h3>Channel-Aware Context</h3>
-          <p>Reads your channel name, keywords, description, and audience to generate metadata that matches your brand voice.</p>
+        <div class="screenshot-slot">
+          <!-- Replace with: <img src="screenshot-upload.png" alt="Upload automation wizard"> -->
+          <span class="placeholder-icon">&#8682;</span>
+          <span class="screenshot-label">Upload automation</span>
         </div>
-        <div class="feature-card">
-          <h3>Upload Automation</h3>
-          <p>Select a video file, generate metadata, and upload — TubePilot fills the details, sets visibility, and publishes for you.</p>
-        </div>
-        <div class="feature-card">
-          <h3>Product Integration</h3>
-          <p>Add products with SEO keywords. TubePilot weaves natural mentions into your descriptions for affiliate and sponsored content.</p>
-        </div>
-        <div class="feature-card">
-          <h3>Playlist Management</h3>
-          <p>Select a playlist before uploading. TubePilot automatically adds your video to the chosen playlist after publishing.</p>
+        <div class="screenshot-slot">
+          <!-- Replace with: <img src="screenshot-popup.png" alt="Extension popup"> -->
+          <span class="placeholder-icon">&#9881;</span>
+          <span class="screenshot-label">Extension popup</span>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <section>
-      <h2>How It Works</h2>
+  <!-- ===== FEATURES ===== -->
+  <section>
+    <div class="container-wide">
+      <h2 class="section-title">Everything You Need</h2>
+      <p class="section-subtitle">From generation to publishing — TubePilot handles the metadata so you can focus on creating.</p>
+      <div class="features">
+        <div class="feature-card">
+          <span class="feature-icon">&#10024;</span>
+          <h3>AI Metadata Generation</h3>
+          <p>Generate SEO-optimized titles, descriptions, tags, and categories tailored to your channel and audience.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">&#9654;</span>
+          <h3>YouTube Studio Panel</h3>
+          <p>A slide-out panel right inside YouTube Studio. One click to fill your video metadata — no tab switching.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">&#128233;</span>
+          <h3>Channel-Aware Context</h3>
+          <p>Reads your channel name, keywords, and audience to generate metadata that matches your brand voice.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">&#8682;</span>
+          <h3>Upload Automation</h3>
+          <p>Select a video, generate metadata, choose visibility — TubePilot fills everything and publishes for you.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">&#128722;</span>
+          <h3>Product Integration</h3>
+          <p>Save products with SEO keywords. TubePilot weaves natural mentions into your descriptions for sponsors and affiliates.</p>
+        </div>
+        <div class="feature-card">
+          <span class="feature-icon">&#128194;</span>
+          <h3>Playlist Management</h3>
+          <p>Pick a playlist before uploading. TubePilot adds your video to the playlist automatically after publishing.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== HOW IT WORKS ===== -->
+  <section>
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <p class="section-subtitle">Five steps from install to published video.</p>
       <ol class="steps">
-        <li><strong>Install</strong> the TubePilot Chrome extension</li>
+        <li><strong>Install TubePilot</strong> from the Chrome Web Store</li>
         <li><strong>Sign in</strong> with your Google account</li>
-        <li><strong>Connect YouTube</strong> when prompted — only requested when you use YouTube features</li>
+        <li><strong>Connect YouTube</strong> — only prompted when you use YouTube features</li>
         <li><strong>Describe your video</strong> in the TubePilot panel on any YouTube Studio page</li>
-        <li><strong>Generate and apply</strong> — review the AI-generated metadata, then fill the form or upload with one click</li>
+        <li><strong>Generate and apply</strong> — review the metadata, then fill the form or upload with one click</li>
       </ol>
-    </section>
+    </div>
+  </section>
 
-    <section>
-      <h2>YouTube Data Access</h2>
+  <!-- ===== PRICING ===== -->
+  <section>
+    <div class="container">
+      <h2 class="section-title">Simple Credit Pricing</h2>
+      <p class="section-subtitle">1 credit = 1 metadata generation. Buy what you need, use when you want.</p>
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <div class="pricing-name">Starter</div>
+          <div class="pricing-credits">25 <span>credits</span></div>
+          <div class="pricing-price">$X.XX</div>
+          <ul class="pricing-details">
+            <li>AI title, description, tags</li>
+            <li>Channel-aware generation</li>
+            <li>Fill form + copy all</li>
+            <li>Credits never expire</li>
+          </ul>
+        </div>
+        <div class="pricing-card featured">
+          <div class="pricing-badge">Most Popular</div>
+          <div class="pricing-name">Standard</div>
+          <div class="pricing-credits">75 <span>credits</span></div>
+          <div class="pricing-price">$X.XX</div>
+          <ul class="pricing-details">
+            <li>Everything in Starter</li>
+            <li>Upload automation</li>
+            <li>Product integration</li>
+            <li>Best value per credit</li>
+          </ul>
+        </div>
+        <div class="pricing-card">
+          <div class="pricing-name">Pro</div>
+          <div class="pricing-credits">200 <span>credits</span></div>
+          <div class="pricing-price">$X.XX</div>
+          <ul class="pricing-details">
+            <li>Everything in Standard</li>
+            <li>Bulk creator workflow</li>
+            <li>Priority support</li>
+            <li>Lowest cost per credit</li>
+          </ul>
+        </div>
+      </div>
+      <p class="pricing-note">All features available at every tier. Credits never expire. Includes free starting credits on sign-up.</p>
+    </div>
+  </section>
+
+  <!-- ===== FAQ ===== -->
+  <section>
+    <div class="container">
+      <h2 class="section-title">Frequently Asked Questions</h2>
+      <div class="faq-list">
+        <div class="faq-item">
+          <div class="faq-q">Is TubePilot free to use?</div>
+          <div class="faq-a">TubePilot includes free credits when you sign up. After that, you can purchase credit packs. All features are available at every tier — credits are just for AI generations.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">How many credits does each generation cost?</div>
+          <div class="faq-a">Each metadata generation (title + description + tags + category) costs 1 credit. You can regenerate as many times as you want — each regeneration uses 1 credit.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">What YouTube data does TubePilot access?</div>
+          <div class="faq-a">TubePilot reads your channel info (name, keywords, description) and video metadata (title, description, tags) to generate tailored results. It can also update video metadata and manage playlists — but only when you explicitly click a button. See our <a href="privacy.html">Privacy Policy</a> for full details.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Does TubePilot upload videos automatically?</div>
+          <div class="faq-a">TubePilot can automate the YouTube Studio upload wizard — selecting your file, filling in metadata, setting visibility, and clicking publish. But it only starts when you click "Upload &amp; Fill" and you select the file yourself. Nothing happens without your action.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Can I edit the generated metadata before applying?</div>
+          <div class="faq-a">Yes. Generated titles, descriptions, and tags are shown in editable fields inside the TubePilot panel. You can modify anything before filling the form or uploading.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Do credits expire?</div>
+          <div class="faq-a">No. Credits never expire. Use them whenever you need them.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Does TubePilot work on any YouTube page?</div>
+          <div class="faq-a">TubePilot activates on YouTube Studio pages (studio.youtube.com). The panel appears on video edit pages for metadata filling, and on any Studio page for uploads.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">What browsers are supported?</div>
+          <div class="faq-a">TubePilot is a Chrome extension built on Manifest V3. It works in Google Chrome and Chromium-based browsers (Edge, Brave, etc.).</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== YOUTUBE DATA ===== -->
+  <section>
+    <div class="container">
+      <h2 class="section-title">YouTube Data Access</h2>
       <div class="info-box">
         TubePilot uses the <a href="https://developers.google.com/youtube/v3">YouTube Data API v3</a> to read and update your video metadata, channel information, and playlists. You remain in full control — TubePilot never publishes or modifies content without your explicit action. All YouTube API calls go directly from the extension to Google's servers. See our <a href="privacy.html">Privacy Policy</a> for full details.
       </div>
-    </section>
-  </main>
+    </div>
+  </section>
 
+  <!-- ===== BOTTOM CTA ===== -->
+  <section class="bottom-cta">
+    <div class="container">
+      <h2>Ready to optimize your YouTube workflow?</h2>
+      <p>Install TubePilot and generate your first metadata in under a minute.</p>
+      <a href="#" class="hero-cta">Add to Chrome — It's Free</a>
+    </div>
+  </section>
+
+  <!-- ===== FOOTER ===== -->
   <footer>
     <div class="container">
       <div class="footer-links">
@@ -218,5 +600,14 @@
       <p>&copy; 2026 TubePilot</p>
     </div>
   </footer>
+
+  <script>
+    // FAQ accordion
+    document.querySelectorAll('.faq-q').forEach(function(q) {
+      q.addEventListener('click', function() {
+        this.parentElement.classList.toggle('open');
+      });
+    });
+  </script>
 </body>
 </html>
