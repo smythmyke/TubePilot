@@ -12,7 +12,8 @@ const QUOTA_COSTS = {
   'channels.list': 1,
   'playlists.list': 1,
   'playlistItems.insert': 50,
-  'thumbnails.set': 50
+  'thumbnails.set': 50,
+  'search.list': 100
 };
 
 const DAILY_QUOTA_LIMIT = 10000;
@@ -300,6 +301,43 @@ class YouTubeApiService {
 
     await trackQuota('playlistItems.insert');
     return await res.json();
+  }
+
+  /**
+   * Search YouTube videos (100 quota units per call)
+   * Returns simplified objects for the reactions queue.
+   */
+  async searchVideos(query, token, maxResults = CONFIG.REACTIONS.SEARCH_MAX_RESULTS) {
+    await checkQuotaAvailable('search.list');
+    const params = new URLSearchParams({
+      part: 'snippet',
+      q: query,
+      type: 'video',
+      videoEmbeddable: 'true',
+      maxResults: String(maxResults)
+    });
+    const url = `${CONFIG.YOUTUBE_API_BASE}/search?${params}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (!res.ok) {
+      const status = res.status;
+      if (status === 401) throw new Error('YouTube token expired');
+      if (status === 403) throw new Error('YouTube API quota exceeded or access denied');
+      throw new Error(`YouTube search API error (${status})`);
+    }
+
+    const data = await res.json();
+    await trackQuota('search.list');
+
+    return (data.items || []).map(item => ({
+      videoId: item.id?.videoId,
+      title: item.snippet?.title || 'Untitled',
+      channelTitle: item.snippet?.channelTitle || '',
+      thumbnail: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || '',
+      publishedAt: item.snippet?.publishedAt || ''
+    })).filter(v => v.videoId);
   }
 
   /**

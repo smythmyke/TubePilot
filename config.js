@@ -77,7 +77,21 @@ const CONFIG = {
     CANVAS_WIDTH: 1920,
     CANVAS_HEIGHT: 1080,
     FRAME_RATE: 30,
-    VIDEO_BITRATE: 2_500_000
+    VIDEO_BITRATE: 2_500_000,
+    PLAYER_INIT_TIMEOUT_MS: 10000,
+    PLAYER_STATE_POLL_MS: 250,
+    SEARCH_MAX_RESULTS: 10,
+    QUEUE_MAX_SIZE: 50,
+    BG_REMOVAL: {
+      MODEL_PATH: 'lib/mediapipe/selfie_segmenter.tflite',
+      WASM_PATH: 'lib/mediapipe/wasm',
+      VISION_BUNDLE_PATH: 'lib/mediapipe/vision_bundle.mjs',
+      SEG_TARGET_FPS: 30,
+      SEG_MIN_FPS: 10,
+      SEG_ERROR_THRESHOLD: 30,
+      DEFAULT_FEATHER: 50,
+      DEFAULT_BLUR_STRENGTH: 50,
+    }
   },
 
   // Upload wizard DOM selectors

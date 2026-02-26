@@ -297,8 +297,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     // --- Reactions ---
+    case RX_MESSAGES.LOAD_VIDEO:
+      handleRxLoadVideo(message, sender.tab?.id)
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => {
+          // Clean up player tab on failure
+          if (rxPlayerTabId) {
+            chrome.tabs.remove(rxPlayerTabId).catch(() => {});
+            rxPlayerTabId = null;
+          }
+          rxState = RX_STATES.IDLE;
+          broadcastRxState();
+          sendResponse({ success: false, error: err.message });
+        });
+      return true;
+
+    case RX_MESSAGES.YOUTUBE_SEARCH:
+      handleRxYouTubeSearch(message)
+        .then(results => sendResponse({ success: true, results }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.LOAD_NEXT_VIDEO:
+      handleRxLoadNextVideo(message, sender.tab?.id)
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.PLAY:
+    case RX_MESSAGES.PAUSE_VIDEO:
+    case RX_MESSAGES.SEEK:
+      handleRxForwardToPlayer(message)
+        .then(result => sendResponse(result || { success: true }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.PLAYER_STATE:
+      // Forward player state from player tab to reactions tab
+      if (rxReactionsTabId) {
+        chrome.tabs.sendMessage(rxReactionsTabId, message).catch(() => {});
+      }
+      break;
+
+    case RX_MESSAGES.PLAYER_ERROR:
+      if (rxReactionsTabId) {
+        chrome.tabs.sendMessage(rxReactionsTabId, message).catch(() => {});
+      }
+      break;
+
+    case RX_MESSAGES.PLAYER_READY:
+      // Handled by the one-shot listener in handleRxLoadVideo
+      break;
+
     case RX_MESSAGES.START_CAPTURE:
-      handleRxStartCapture(message)
+      handleRxStartCapture()
         .then(result => sendResponse({ success: true, ...result }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
@@ -310,38 +362,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case RX_MESSAGES.PAUSE:
-      handleRxForward(message)
-        .then(() => {
-          rxState = RX_STATES.PAUSED;
-          broadcastRxState();
-          sendResponse({ success: true });
-        })
-        .catch(err => sendResponse({ success: false, error: err.message }));
-      return true;
+      rxState = RX_STATES.PAUSED;
+      broadcastRxState();
+      sendResponse({ success: true });
+      break;
 
     case RX_MESSAGES.RESUME:
-      handleRxForward(message)
-        .then(() => {
-          rxState = RX_STATES.RECORDING;
-          broadcastRxState();
-          sendResponse({ success: true });
-        })
-        .catch(err => sendResponse({ success: false, error: err.message }));
-      return true;
-
-    case RX_MESSAGES.UPDATE_CONFIG:
-      handleRxForward(message)
-        .then(() => sendResponse({ success: true }))
-        .catch(err => sendResponse({ success: false, error: err.message }));
-      return true;
+      rxState = RX_STATES.RECORDING;
+      broadcastRxState();
+      sendResponse({ success: true });
+      break;
 
     case RX_MESSAGES.GET_STATE:
-      sendResponse({ success: true, state: rxState, tabId: rxTabId });
+      sendResponse({ success: true, state: rxState, playerTabId: rxPlayerTabId });
       break;
 
     case RX_MESSAGES.RECORDING_READY:
       rxState = RX_STATES.STOPPED;
       broadcastRxState(message);
+      sendResponse({ success: true });
+      break;
+
+    case RX_MESSAGES.CLEANUP:
+      if (rxPlayerTabId) {
+        chrome.tabs.remove(rxPlayerTabId).catch(() => {});
+        rxPlayerTabId = null;
+      }
+      rxStreamId = null;
+      rxState = RX_STATES.IDLE;
+      broadcastRxState();
       sendResponse({ success: true });
       break;
   }
@@ -763,108 +812,148 @@ async function handleExpandProductLimit() {
 }
 
 // ==========================================================
-// Reactions feature — offscreen lifecycle + state management
+// Reactions feature — player tab + state management
 // ==========================================================
 
 let rxState = RX_STATES.IDLE;
-let rxTabId = null;
+let rxPlayerTabId = null;
+let rxReactionsTabId = null;
+let rxStreamId = null;
 
 function broadcastRxState(extra = {}) {
   chrome.runtime.sendMessage({
     type: RX_MESSAGES.STATE_CHANGED,
     state: rxState,
-    tabId: rxTabId,
     ...extra
   }).catch(() => {});
 }
 
-async function ensureOffscreen() {
-  const contexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT']
-  });
-  if (contexts.length > 0) return;
+// --- LOAD_VIDEO: create player tab, capture it, return streamId ---
 
-  await chrome.offscreen.createDocument({
-    url: 'offscreen/offscreen.html',
-    reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK', 'DISPLAY_MEDIA'],
-    justification: 'Recording reaction video with canvas compositing and audio mixing'
-  });
-}
+async function handleRxLoadVideo(message, senderTabId) {
+  const videoId = message.videoId;
+  if (!videoId) throw new Error('No videoId provided');
 
-async function closeOffscreen() {
-  try {
-    const contexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT']
-    });
-    if (contexts.length > 0) {
-      await chrome.offscreen.closeDocument();
-    }
-  } catch {}
-}
-
-async function handleRxStartCapture(message) {
-  const tabId = message.tabId;
-  if (!tabId) throw new Error('No tabId provided');
-
-  rxState = RX_STATES.PREPARING;
-  rxTabId = tabId;
+  rxReactionsTabId = senderTabId;
+  rxState = RX_STATES.LOADING;
   broadcastRxState();
 
-  // Get tab capture stream ID
-  const streamId = await new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
+  // Create player tab (background)
+  const playerTab = await chrome.tabs.create({
+    url: chrome.runtime.getURL('reactions/youtube-player.html'),
+    active: false
+  });
+  rxPlayerTabId = playerTab.id;
+
+  // Wait for PLAYER_READY from the player tab
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.runtime.onMessage.removeListener(listener);
+      reject(new Error('Player tab timed out'));
+    }, CONFIG.REACTIONS.PLAYER_INIT_TIMEOUT_MS);
+
+    function listener(msg, sender) {
+      if (msg.type === RX_MESSAGES.PLAYER_READY && sender.tab?.id === rxPlayerTabId) {
+        clearTimeout(timeout);
+        chrome.runtime.onMessage.removeListener(listener);
+        resolve();
       }
-      resolve(id);
-    });
-  });
-
-  // Create offscreen document
-  await ensureOffscreen();
-
-  // Send streamId + config to offscreen
-  const response = await chrome.runtime.sendMessage({
-    type: RX_MESSAGES.START_CAPTURE,
-    streamId,
-    config: {
-      cameraDeviceId: message.cameraDeviceId,
-      micDeviceId: message.micDeviceId,
-      pipPosition: message.pipPosition || RX_DEFAULTS.pipPosition,
-      pipSize: message.pipSize || RX_DEFAULTS.pipSize,
-      tabVolume: message.tabVolume ?? RX_DEFAULTS.tabVolume,
-      micVolume: message.micVolume ?? RX_DEFAULTS.micVolume
     }
+    chrome.runtime.onMessage.addListener(listener);
   });
 
-  if (!response || !response.success) {
-    rxState = RX_STATES.IDLE;
-    rxTabId = null;
-    broadcastRxState();
-    throw new Error(response?.error || 'Failed to start capture');
-  }
+  // Tell the player tab to load the video
+  await chrome.tabs.sendMessage(rxPlayerTabId, {
+    type: RX_MESSAGES.LOAD_VIDEO,
+    videoId
+  });
 
+  // Capture the player tab
+  const streamId = await new Promise((resolve, reject) => {
+    chrome.tabCapture.getMediaStreamId(
+      { targetTabId: rxPlayerTabId },
+      (id) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(id);
+      }
+    );
+  });
+
+  rxStreamId = streamId;
+  rxState = RX_STATES.READY;
+  broadcastRxState();
+
+  return { streamId };
+}
+
+// --- Playback forwarding to player tab ---
+
+async function handleRxForwardToPlayer(message) {
+  if (!rxPlayerTabId) throw new Error('No player tab');
+  return chrome.tabs.sendMessage(rxPlayerTabId, message);
+}
+
+// --- Recording state management (recording happens in reactions page) ---
+
+async function handleRxStartCapture() {
   rxState = RX_STATES.RECORDING;
   broadcastRxState();
   return { state: rxState };
 }
 
 async function handleRxStopCapture() {
-  const response = await chrome.runtime.sendMessage({
-    type: RX_MESSAGES.STOP_CAPTURE
+  rxState = RX_STATES.STOPPED;
+  broadcastRxState();
+  return {};
+}
+
+// --- YOUTUBE_SEARCH: search YouTube via Data API ---
+
+async function handleRxYouTubeSearch(message) {
+  const query = message.query;
+  if (!query) throw new Error('No search query provided');
+
+  const token = await handleGetYouTubeToken();
+  return await youtubeApiService.searchVideos(query, token, message.maxResults);
+}
+
+// --- LOAD_NEXT_VIDEO: change video in existing player tab (no re-capture) ---
+
+async function handleRxLoadNextVideo(message, senderTabId) {
+  const videoId = message.videoId;
+  if (!videoId) throw new Error('No videoId provided');
+
+  if (!rxPlayerTabId) {
+    throw new Error('No player tab');
+  }
+
+  if (senderTabId) {
+    rxReactionsTabId = senderTabId;
+  }
+
+  // Tell existing player tab to load the new video
+  await chrome.tabs.sendMessage(rxPlayerTabId, {
+    type: RX_MESSAGES.LOAD_VIDEO,
+    videoId
   });
 
-  rxState = RX_STATES.STOPPED;
-  rxTabId = null;
-  broadcastRxState(response || {});
-
-  // Close offscreen document after a short delay to let it finish saving
-  setTimeout(() => closeOffscreen(), 2000);
-
-  return response || {};
+  return { streamId: rxStreamId };
 }
 
-async function handleRxForward(message) {
-  return chrome.runtime.sendMessage(message);
-}
+// --- Player tab cleanup on close ---
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === rxPlayerTabId) {
+    rxPlayerTabId = null;
+    rxStreamId = null;
+    if (rxState === RX_STATES.RECORDING || rxState === RX_STATES.PAUSED) {
+      rxState = RX_STATES.STOPPED;
+    } else if (rxState !== RX_STATES.STOPPED) {
+      rxState = RX_STATES.IDLE;
+    }
+    broadcastRxState({ playerClosed: true });
+  }
+});

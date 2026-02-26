@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TubePilot Reactions — Interface Mockup</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Roboto', sans-serif;
+      background: #1a1a1a;
+      color: #f1f1f1;
+      min-height: 100vh;
+    }
+
+    /* ====== TOP BAR ====== */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: #202020;
+      border-bottom: 2px solid #cc0000;
+    }
+
+    .top-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .top-bar-logo {
+      width: 24px;
+      height: 24px;
+      background: #cc0000;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 11px;
+    }
+
+    .top-bar h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .top-bar h1 span { color: #cc0000; }
+
+    /* Recording controls in top bar */
+    .rec-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .rec-timer {
+      font-size: 20px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 1px;
+      color: #f1f1f1;
+    }
+
+    .rec-dot {
+      width: 10px;
+      height: 10px;
+      background: #cc0000;
+      border-radius: 50%;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .btn {
+      padding: 8px 18px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-rec {
+      background: #cc0000;
+      color: white;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-rec:hover { background: #a00; }
+
+    .btn-pause {
+      background: #3f3f3f;
+      color: #f1f1f1;
+      border: 1px solid #4a4a4a;
+    }
+
+    .btn-stop {
+      background: #3f3f3f;
+      color: #ff4444;
+      border: 1px solid #5a2d2d;
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    /* ====== MAIN LAYOUT ====== */
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: auto 1fr;
+      height: calc(100vh - 52px);
+    }
+
+    /* ====== LEFT COLUMN — Preview + Player Controls ====== */
+    .left-col {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    /* View toggle */
+    .view-toggle {
+      display: flex;
+      gap: 0;
+      padding: 8px 16px;
+      background: #202020;
+    }
+
+    .view-btn {
+      padding: 6px 16px;
+      background: #2a2a2a;
+      color: #888;
+      border: 1px solid #3a3a3a;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .view-btn:first-child { border-radius: 4px 0 0 4px; }
+    .view-btn:last-child { border-radius: 0 4px 4px 0; }
+    .view-btn:not(:last-child) { border-right: none; }
+
+    .view-btn.active {
+      background: #cc0000;
+      color: white;
+      border-color: #cc0000;
+    }
+
+    /* Preview area */
+    .preview-area {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #111;
+      position: relative;
+      overflow: hidden;
+      margin: 0 16px;
+      border-radius: 8px;
+    }
+
+    .preview-content {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      max-height: 100%;
+      background: #000;
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    /* Simulated YouTube video */
+    .yt-video-sim {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      color: #555;
+    }
+
+    /* PiP webcam overlay — draggable */
+    .pip-overlay {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 25%;
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 3px solid #cc0000;
+      cursor: grab;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+
+    .pip-overlay.circle {
+      border-radius: 50%;
+      aspect-ratio: 1;
+      width: 20%;
+    }
+
+    .pip-webcam-sim {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, #2d1b3d 0%, #1a1a2e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+    }
+
+    /* Resize handle */
+    .pip-resize {
+      position: absolute;
+      bottom: 0;
+      right: 0;
+      width: 16px;
+      height: 16px;
+      cursor: nwse-resize;
+      background: linear-gradient(135deg, transparent 50%, #cc0000 50%);
+      border-radius: 0 0 9px 0;
+    }
+
+    /* Recording indicator overlay */
+    .rec-indicator {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(204, 0, 0, 0.85);
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .rec-indicator .dot {
+      width: 7px;
+      height: 7px;
+      background: white;
+      border-radius: 50%;
+    }
+
+    /* Player controls bar */
+    .player-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: #202020;
+      margin: 0 16px 12px;
+      border-radius: 0 0 8px 8px;
+    }
+
+    .player-btn {
+      background: none;
+      border: none;
+      color: #aaa;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px;
+      font-family: inherit;
+    }
+
+    .player-btn:hover { color: #f1f1f1; }
+
+    .player-time {
+      font-size: 12px;
+      color: #aaa;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .player-seek {
+      flex: 1;
+      height: 4px;
+      background: #3f3f3f;
+      border-radius: 2px;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .player-seek-fill {
+      height: 100%;
+      background: #cc0000;
+      border-radius: 2px;
+      width: 35%;
+    }
+
+    .player-seek-thumb {
+      position: absolute;
+      top: 50%;
+      left: 35%;
+      transform: translate(-50%, -50%);
+      width: 12px;
+      height: 12px;
+      background: #cc0000;
+      border-radius: 50%;
+    }
+
+    .player-vol {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .player-vol-bar {
+      width: 60px;
+      height: 3px;
+      background: #3f3f3f;
+      border-radius: 2px;
+    }
+
+    .player-vol-fill {
+      height: 100%;
+      width: 75%;
+      background: #aaa;
+      border-radius: 2px;
+    }
+
+    /* ====== RIGHT COLUMN — Sidebar ====== */
+    .right-col {
+      background: #202020;
+      border-left: 1px solid #2a2a2a;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Sidebar tabs */
+    .sidebar-tabs {
+      display: flex;
+      border-bottom: 1px solid #2a2a2a;
+    }
+
+    .sidebar-tab {
+      flex: 1;
+      padding: 10px;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #888;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .sidebar-tab.active {
+      color: #cc0000;
+      border-bottom-color: #cc0000;
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    /* Camera/Device panel */
+    .device-section {
+      margin-bottom: 16px;
+    }
+
+    .device-section h3 {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .device-preview {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: linear-gradient(180deg, #2d1b3d 0%, #1a1a2e 100%);
+      border-radius: 8px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+
+    .form-row {
+      margin-bottom: 10px;
+    }
+
+    .form-row label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      margin-bottom: 3px;
+    }
+
+    select, input[type="text"] {
+      width: 100%;
+      background: #2a2a2a;
+      color: #f1f1f1;
+      border: 1px solid #3a3a3a;
+      border-radius: 5px;
+      padding: 7px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      outline: none;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: #cc0000;
+    }
+
+    /* PiP style controls */
+    .pip-style-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .pip-style-row label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      width: 50px;
+      flex-shrink: 0;
+    }
+
+    .shape-btns {
+      display: flex;
+      gap: 4px;
+    }
+
+    .shape-btn {
+      width: 32px;
+      height: 26px;
+      background: #2a2a2a;
+      border: 1px solid #3a3a3a;
+      border-radius: 4px;
+      color: #888;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .shape-btn.active {
+      background: #cc0000;
+      color: white;
+      border-color: #cc0000;
+    }
+
+    .shape-rect { border-radius: 2px; }
+    .shape-round { border-radius: 4px; }
+    .shape-circle { border-radius: 50%; width: 26px; }
+
+    /* Color picker */
+    .color-picker-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .color-swatch {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      border: 2px solid #3a3a3a;
+      cursor: pointer;
+    }
+
+    .color-swatch.active {
+      border-color: #f1f1f1;
+    }
+
+    /* Slider row */
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .slider-row label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #888;
+      width: 50px;
+      flex-shrink: 0;
+    }
+
+    .slider-row input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 3px;
+      background: #3a3a3a;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .slider-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      background: #cc0000;
+      border-radius: 50%;
+      cursor: pointer;
+    }
+
+    .slider-val {
+      font-size: 11px;
+      color: #888;
+      width: 30px;
+      text-align: right;
+    }
+
+    /* Toggle */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .toggle-row label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #aaa;
+    }
+
+    .toggle {
+      width: 36px;
+      height: 20px;
+      background: #3a3a3a;
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .toggle.on { background: #cc0000; }
+
+    .toggle-knob {
+      width: 16px;
+      height: 16px;
+      background: white;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: left 0.15s;
+    }
+
+    .toggle.on .toggle-knob { left: 18px; }
+
+    /* ====== QUEUE TAB ====== */
+    .search-bar {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .search-bar input {
+      flex: 1;
+    }
+
+    .search-bar button {
+      padding: 7px 12px;
+      background: #cc0000;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    .queue-section-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    /* Now Playing */
+    .now-playing {
+      background: rgba(204, 0, 0, 0.1);
+      border: 1px solid rgba(204, 0, 0, 0.3);
+      border-radius: 8px;
+      padding: 8px;
+      margin-bottom: 14px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .now-playing-thumb {
+      width: 80px;
+      height: 45px;
+      background: linear-gradient(135deg, #1a1a2e, #0f3460);
+      border-radius: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .now-playing-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .now-playing-label {
+      font-size: 10px;
+      color: #cc0000;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .now-playing-title {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .now-playing-channel {
+      font-size: 11px;
+      color: #888;
+    }
+
+    /* Queue list */
+    .queue-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .queue-item {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px;
+      background: #2a2a2a;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .queue-item:hover { background: #333; }
+
+    .queue-num {
+      font-size: 12px;
+      color: #555;
+      width: 16px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .queue-thumb {
+      width: 64px;
+      height: 36px;
+      background: linear-gradient(135deg, #1a2a1e, #0f4630);
+      border-radius: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+    }
+
+    .queue-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .queue-title {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .queue-channel {
+      font-size: 10px;
+      color: #666;
+    }
+
+    .queue-remove {
+      background: none;
+      border: none;
+      color: #555;
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 4px;
+    }
+
+    .queue-remove:hover { color: #ff4444; }
+
+    /* Search results */
+    .search-results {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .search-result {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px;
+      background: #2a2a2a;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .search-result:hover { background: #333; }
+
+    .search-thumb {
+      width: 64px;
+      height: 36px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #555;
+    }
+
+    .search-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .search-title {
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-meta {
+      font-size: 10px;
+      color: #666;
+    }
+
+    .search-add {
+      background: #cc0000;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 4px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* ====== VOLUME SECTION (bottom of sidebar) ====== */
+    .sidebar-footer {
+      padding: 10px 12px;
+      border-top: 1px solid #2a2a2a;
+      background: #1a1a1a;
+    }
+
+    /* Hidden panels */
+    .panel-hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- ====== TOP BAR ====== -->
+  <div class="top-bar">
+    <div class="top-bar-left">
+      <div class="top-bar-logo">TP</div>
+      <h1>TubePilot <span>Reactions</span></h1>
+    </div>
+    <div class="rec-controls">
+      <div class="rec-dot"></div>
+      <span class="rec-timer">00:02:34</span>
+      <button class="btn btn-pause btn-sm">Pause</button>
+      <button class="btn btn-stop btn-sm">Stop</button>
+    </div>
+  </div>
+
+  <!-- ====== MAIN LAYOUT ====== -->
+  <div class="main">
+
+    <!-- LEFT COLUMN — Preview + Player -->
+    <div class="left-col">
+
+      <!-- View toggle -->
+      <div class="view-toggle">
+        <button class="view-btn active" onclick="switchView(this, 'final')">Final Cut</button>
+        <button class="view-btn" onclick="switchView(this, 'camera')">Camera</button>
+        <button class="view-btn" onclick="switchView(this, 'player')">Video Only</button>
+      </div>
+
+      <!-- Preview area -->
+      <div class="preview-area">
+        <div class="preview-content">
+          <!-- Simulated YouTube video background -->
+          <div class="yt-video-sim" id="yt-sim">
+            YouTube Video Playing Here
+          </div>
+
+          <!-- PiP webcam overlay (draggable) -->
+          <div class="pip-overlay" id="pip-overlay">
+            <div class="pip-webcam-sim">&#x1f464;</div>
+            <div class="pip-resize"></div>
+          </div>
+
+          <!-- Recording indicator -->
+          <div class="rec-indicator">
+            <div class="dot"></div>
+            REC 00:02:34
+          </div>
+        </div>
+      </div>
+
+      <!-- Player controls -->
+      <div class="player-controls">
+        <button class="player-btn">&#x23EE;</button>
+        <button class="player-btn" style="font-size:20px;">&#x23F8;</button>
+        <button class="player-btn">&#x23ED;</button>
+        <span class="player-time">2:34</span>
+        <div class="player-seek">
+          <div class="player-seek-fill"></div>
+          <div class="player-seek-thumb"></div>
+        </div>
+        <span class="player-time">10:21</span>
+        <div class="player-vol">
+          <button class="player-btn" style="font-size:14px;">&#x1F50A;</button>
+          <div class="player-vol-bar"><div class="player-vol-fill"></div></div>
+        </div>
+        <button class="player-btn" style="font-size:14px;" title="Next in Queue">&#x23ED; Next</button>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN — Sidebar -->
+    <div class="right-col">
+
+      <!-- Sidebar tabs -->
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" onclick="switchTab(this, 'queue')">Queue</button>
+        <button class="sidebar-tab" onclick="switchTab(this, 'camera-settings')">Camera</button>
+        <button class="sidebar-tab" onclick="switchTab(this, 'style')">Style</button>
+      </div>
+
+      <!-- ====== QUEUE TAB ====== -->
+      <div class="sidebar-content" id="panel-queue">
+
+        <!-- Search -->
+        <div class="search-bar">
+          <input type="text" placeholder="Search YouTube...">
+          <button>Search</button>
+        </div>
+
+        <!-- Now Playing -->
+        <div class="queue-section-title">Now Playing</div>
+        <div class="now-playing">
+          <div class="now-playing-thumb">&#x25B6;</div>
+          <div class="now-playing-info">
+            <div class="now-playing-label">Playing</div>
+            <div class="now-playing-title">Unbelievable Street Food in Bangkok</div>
+            <div class="now-playing-channel">Best Ever Food Review Show</div>
+          </div>
+        </div>
+
+        <!-- Up Next -->
+        <div class="queue-section-title">Up Next</div>
+        <div class="queue-list">
+          <div class="queue-item">
+            <span class="queue-num">1</span>
+            <div class="queue-thumb" style="background:linear-gradient(135deg,#2a1a1e,#460f30);">&#x25B6;</div>
+            <div class="queue-info">
+              <div class="queue-title">Why I Left My $300K Job</div>
+              <div class="queue-channel">Graham Stephan</div>
+            </div>
+            <button class="queue-remove">&times;</button>
+          </div>
+          <div class="queue-item">
+            <span class="queue-num">2</span>
+            <div class="queue-thumb">&#x25B6;</div>
+            <div class="queue-info">
+              <div class="queue-title">The Most Dangerous Road in the World</div>
+              <div class="queue-channel">Yes Theory</div>
+            </div>
+            <button class="queue-remove">&times;</button>
+          </div>
+          <div class="queue-item">
+            <span class="queue-num">3</span>
+            <div class="queue-thumb" style="background:linear-gradient(135deg,#1a1a0e,#464600);">&#x25B6;</div>
+            <div class="queue-info">
+              <div class="queue-title">I Survived 100 Days in Minecraft</div>
+              <div class="queue-channel">Luke TheNotable</div>
+            </div>
+            <button class="queue-remove">&times;</button>
+          </div>
+        </div>
+
+        <!-- Search Results -->
+        <div class="queue-section-title">Search Results</div>
+        <div class="search-results">
+          <div class="search-result">
+            <div class="search-thumb" style="background:linear-gradient(135deg,#0f2a1e,#1a4630);">&#x25B6;</div>
+            <div class="search-info">
+              <div class="search-title">World's Largest Firework Shell</div>
+              <div class="search-meta">MrBeast &middot; 142M views</div>
+            </div>
+            <button class="search-add">+ Queue</button>
+          </div>
+          <div class="search-result">
+            <div class="search-thumb" style="background:linear-gradient(135deg,#2a1a0e,#463010);">&#x25B6;</div>
+            <div class="search-info">
+              <div class="search-title">How to Build a PC — Beginners Guide</div>
+              <div class="search-meta">Linus Tech Tips &middot; 28M views</div>
+            </div>
+            <button class="search-add">+ Queue</button>
+          </div>
+          <div class="search-result">
+            <div class="search-thumb" style="background:linear-gradient(135deg,#1e1a2e,#301060);">&#x25B6;</div>
+            <div class="search-info">
+              <div class="search-title">The Hidden Rules of Conversation</div>
+              <div class="search-meta">Veritasium &middot; 9.4M views</div>
+            </div>
+            <button class="search-add">+ Queue</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== CAMERA TAB ====== -->
+      <div class="sidebar-content panel-hidden" id="panel-camera-settings">
+        <div class="device-section">
+          <h3>Live Preview</h3>
+          <div class="device-preview">&#x1f464;</div>
+        </div>
+
+        <div class="device-section">
+          <h3>Devices</h3>
+          <div class="form-row">
+            <label>Camera</label>
+            <select>
+              <option>Logitech C920 HD Pro</option>
+              <option>FaceTime HD Camera</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Microphone</label>
+            <select>
+              <option>Blue Yeti USB Mic</option>
+              <option>Built-in Microphone</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Volume</h3>
+          <div class="slider-row">
+            <label>YouTube</label>
+            <input type="range" min="0" max="100" value="75">
+            <span class="slider-val">75%</span>
+          </div>
+          <div class="slider-row">
+            <label>Mic</label>
+            <input type="range" min="0" max="100" value="100">
+            <span class="slider-val">100%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ====== STYLE TAB ====== -->
+      <div class="sidebar-content panel-hidden" id="panel-style">
+        <div class="device-section">
+          <h3>Webcam Shape</h3>
+          <div class="shape-btns" style="margin-bottom: 12px;">
+            <button class="shape-btn" style="width:40px;">&#x25AD;</button>
+            <button class="shape-btn active" style="width:40px;border-radius:8px;">&#x25AD;</button>
+            <button class="shape-btn" style="width:34px;height:34px;border-radius:50%;">&#x25CB;</button>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Border</h3>
+          <div class="color-picker-row" style="margin-bottom: 10px;">
+            <div class="color-swatch active" style="background:#cc0000;"></div>
+            <div class="color-swatch" style="background:#ffffff;"></div>
+            <div class="color-swatch" style="background:#ffd700;"></div>
+            <div class="color-swatch" style="background:#00cc66;"></div>
+            <div class="color-swatch" style="background:#3366ff;"></div>
+            <div class="color-swatch" style="background:transparent; border:1px dashed #555;" title="None"></div>
+          </div>
+          <div class="slider-row">
+            <label>Width</label>
+            <input type="range" min="0" max="8" value="3">
+            <span class="slider-val">3px</span>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>PiP Size</h3>
+          <div class="slider-row">
+            <label>Size</label>
+            <input type="range" min="10" max="45" value="25">
+            <span class="slider-val">25%</span>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Background</h3>
+          <div class="toggle-row">
+            <label>Remove Background</label>
+            <div class="toggle" onclick="this.classList.toggle('on')">
+              <div class="toggle-knob"></div>
+            </div>
+          </div>
+          <div class="slider-row">
+            <label>Edge</label>
+            <input type="range" min="0" max="20" value="5">
+            <span class="slider-val">5px</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Volume footer (always visible) -->
+      <div class="sidebar-footer">
+        <div class="slider-row" style="margin-bottom:0;">
+          <label style="color:#aaa;">&#x1F50A; YT</label>
+          <input type="range" min="0" max="100" value="75">
+          <span class="slider-val">75%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tab switching
+    function switchTab(btn, panelId) {
+      document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.sidebar-content').forEach(p => p.classList.add('panel-hidden'));
+      document.getElementById('panel-' + panelId).classList.remove('panel-hidden');
+    }
+
+    // View toggle
+    function switchView(btn, mode) {
+      document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const pip = document.getElementById('pip-overlay');
+      const yt = document.getElementById('yt-sim');
+
+      if (mode === 'final') {
+        pip.style.display = 'block';
+        yt.textContent = 'YouTube Video Playing Here';
+        yt.style.background = 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)';
+      } else if (mode === 'camera') {
+        pip.style.display = 'none';
+        yt.textContent = '';
+        yt.style.background = 'linear-gradient(180deg, #2d1b3d 0%, #1a1a2e 100%)';
+        yt.innerHTML = '<span style="font-size:60px;">&#x1f464;</span>';
+      } else if (mode === 'player') {
+        pip.style.display = 'none';
+        yt.textContent = 'YouTube Video Playing Here';
+        yt.style.background = 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)';
+      }
+    }
+
+    // Basic PiP drag (mockup only)
+    const pip = document.getElementById('pip-overlay');
+    let dragging = false;
+    let dragOffsetX, dragOffsetY;
+
+    pip.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('pip-resize')) return;
+      dragging = true;
+      const rect = pip.getBoundingClientRect();
+      dragOffsetX = e.clientX - rect.left;
+      dragOffsetY = e.clientY - rect.top;
+      pip.style.cursor = 'grabbing';
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const parent = pip.parentElement.getBoundingClientRect();
+      let x = e.clientX - parent.left - dragOffsetX;
+      let y = e.clientY - parent.top - dragOffsetY;
+      // Clamp
+      x = Math.max(0, Math.min(x, parent.width - pip.offsetWidth));
+      y = Math.max(0, Math.min(y, parent.height - pip.offsetHeight));
+      pip.style.left = x + 'px';
+      pip.style.top = y + 'px';
+      pip.style.right = 'auto';
+      pip.style.bottom = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      dragging = false;
+      pip.style.cursor = 'grab';
+    });
+  </script>
+
+</body>
+</html>

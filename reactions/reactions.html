@@ -7,119 +7,477 @@
   <link rel="stylesheet" href="reactions.css">
 </head>
 <body>
-  <div class="rx-container">
-    <!-- Header -->
-    <div class="rx-header">
-      <div class="rx-header-left">
-        <img class="rx-header-icon" src="../icons/icon48.png" alt="TP">
-        <h1>TubePilot <span class="rx-header-accent">Reactions</span></h1>
-      </div>
-      <button class="rx-btn rx-btn-secondary rx-btn-sm" id="minimize-btn">Side Panel &rarr;</button>
-    </div>
 
-    <!-- Preview -->
-    <div class="rx-section">
-      <div class="rx-preview-wrap">
-        <video id="preview-video" autoplay muted playsinline></video>
-        <canvas id="preview-canvas" style="display:none;"></canvas>
-        <div class="rx-preview-placeholder" id="preview-placeholder">
-          <span>Camera preview will appear here</span>
-        </div>
-        <div class="rx-recording-indicator hidden" id="recording-indicator">
-          <span class="rx-rec-dot"></span> REC
-        </div>
-        <div class="rx-paused-indicator hidden" id="paused-indicator">PAUSED</div>
-      </div>
+  <!-- ====== TOP BAR ====== -->
+  <div class="top-bar">
+    <div class="top-bar-left">
+      <img class="top-bar-logo" src="../icons/icon48.png" alt="TP">
+      <h1>TubePilot <span>Reactions</span></h1>
     </div>
+    <div class="rec-controls">
+      <div class="rec-dot hidden" id="rec-dot"></div>
+      <span class="rec-timer" id="rec-timer">00:00:00</span>
+      <label class="toggle-inline webcam-only-toggle" title="Record webcam only (copyright-safe)">
+        <input type="checkbox" id="webcam-only-toggle">
+        <span>Cam Only</span>
+      </label>
+      <button class="btn btn-rec" id="record-btn" disabled>
+        <span class="rec-dot-btn"></span> Record
+      </button>
+      <button class="btn btn-pause btn-sm" id="pause-btn" disabled>Pause</button>
+      <button class="btn btn-stop btn-sm" id="stop-btn" disabled>Stop</button>
+    </div>
+  </div>
 
-    <!-- Setup -->
-    <div class="rx-section">
-      <h2 class="rx-section-title">Setup</h2>
-      <div class="rx-form-grid">
-        <div class="rx-form-row">
-          <label for="camera-select">Camera</label>
-          <select id="camera-select"><option value="">Loading...</option></select>
-        </div>
-        <div class="rx-form-row">
-          <label for="mic-select">Microphone</label>
-          <select id="mic-select"><option value="">Loading...</option></select>
-        </div>
-        <div class="rx-form-row rx-form-row-full">
-          <label for="tab-select">YouTube Tab</label>
-          <div class="rx-tab-row">
-            <select id="tab-select"><option value="">Loading...</option></select>
-            <button class="rx-btn rx-btn-secondary rx-btn-sm" id="refresh-tabs-btn">Refresh</button>
+  <!-- ====== MAIN LAYOUT ====== -->
+  <div class="main">
+
+    <!-- LEFT COLUMN — Preview + Player Controls -->
+    <div class="left-col">
+
+      <!-- View toggle -->
+      <div class="view-toggle">
+        <button class="view-btn active" data-view="FINAL">Final Cut</button>
+        <button class="view-btn" data-view="CAMERA">Camera</button>
+        <button class="view-btn" data-view="VIDEO">Video Only</button>
+      </div>
+
+      <!-- Preview area -->
+      <div class="preview-area">
+        <div class="preview-content">
+          <canvas id="preview-canvas" width="1920" height="1080"></canvas>
+          <div class="preview-placeholder" id="preview-placeholder">
+            <span>Load a video to start</span>
+          </div>
+          <div class="rec-indicator hidden" id="rec-indicator">
+            <div class="dot"></div>
+            REC
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- PiP Layout -->
-    <div class="rx-section">
-      <h2 class="rx-section-title">Picture-in-Picture</h2>
-      <div class="rx-pip-controls">
-        <div class="rx-pip-positions">
-          <label>Position:</label>
-          <div class="rx-pip-btns">
-            <button class="rx-pip-btn" data-pos="top-left" title="Top Left">TL</button>
-            <button class="rx-pip-btn" data-pos="top-right" title="Top Right">TR</button>
-            <button class="rx-pip-btn" data-pos="bottom-left" title="Bottom Left">BL</button>
-            <button class="rx-pip-btn rx-pip-btn-active" data-pos="bottom-right" title="Bottom Right">BR</button>
-          </div>
+      <!-- Player controls -->
+      <div class="player-controls">
+        <button class="player-btn" id="prev-btn" title="Previous" disabled>&#x23EE;</button>
+        <button class="player-btn" id="play-pause-btn" title="Play/Pause" disabled>&#x25B6;</button>
+        <button class="player-btn" id="next-btn" title="Next" disabled>&#x23ED;</button>
+        <span class="player-time" id="current-time">0:00</span>
+        <div class="player-seek" id="seek-bar">
+          <div class="player-seek-fill" id="seek-fill"></div>
+          <input type="range" class="player-seek-input" id="seek-input" min="0" max="100" value="0" step="0.1" disabled>
         </div>
-        <div class="rx-pip-size">
-          <label for="pip-size-slider">Size: <span id="pip-size-value">25</span>%</label>
-          <input type="range" id="pip-size-slider" min="15" max="40" value="25" step="1">
-        </div>
+        <span class="player-time" id="duration-time">0:00</span>
       </div>
     </div>
 
-    <!-- Volume -->
-    <div class="rx-section">
-      <h2 class="rx-section-title">Volume</h2>
-      <div class="rx-volume-controls">
-        <div class="rx-volume-row">
-          <label for="tab-volume-slider">YouTube</label>
+    <!-- RIGHT COLUMN — Sidebar -->
+    <div class="right-col">
+
+      <!-- Sidebar tabs -->
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-panel="queue">Queue</button>
+        <button class="sidebar-tab" data-panel="camera">Camera</button>
+        <button class="sidebar-tab" data-panel="style">Style</button>
+      </div>
+
+      <!-- ====== QUEUE TAB ====== -->
+      <div class="sidebar-content" id="panel-queue">
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Search YouTube or paste URL/ID">
+          <button class="btn btn-primary btn-sm" id="search-btn">Search</button>
+        </div>
+        <div class="search-status" id="search-status"></div>
+
+        <div class="now-playing hidden" id="now-playing">
+          <h3>Now Playing</h3>
+          <div class="now-playing-card" id="now-playing-card"></div>
+        </div>
+
+        <div class="queue-section hidden" id="queue-section">
+          <h3>Up Next</h3>
+          <div class="queue-list" id="queue-list"></div>
+        </div>
+
+        <div class="search-results hidden" id="search-results-section">
+          <h3>Search Results</h3>
+          <div class="search-results-list" id="search-results-list"></div>
+        </div>
+      </div>
+
+      <!-- ====== CAMERA TAB ====== -->
+      <div class="sidebar-content panel-hidden" id="panel-camera">
+        <div class="device-section">
+          <h3>Live Preview</h3>
+          <div class="device-preview">
+            <video id="cam-preview" autoplay muted playsinline></video>
+            <span class="device-preview-placeholder" id="cam-placeholder">No camera</span>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Devices</h3>
+          <div class="form-row">
+            <label for="camera-select">Camera</label>
+            <select id="camera-select"><option value="">Loading...</option></select>
+          </div>
+          <div class="form-row">
+            <label for="mic-select">Microphone</label>
+            <select id="mic-select"><option value="">Loading...</option></select>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Options</h3>
+          <div class="toggle-row">
+            <button class="btn btn-sm mirror-btn" id="mirror-btn">&#x27F7; Mirror</button>
+            <span class="style-hint">Flip camera horizontally</span>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Auto-Captions</h3>
+          <div class="toggle-row">
+            <label class="toggle-inline">
+              <input type="checkbox" id="captions-toggle">
+              <span>Record speech captions</span>
+            </label>
+          </div>
+          <span class="style-hint" id="captions-hint">Captures your speech during recording for SRT export</span>
+        </div>
+
+      </div>
+
+      <!-- ====== STYLE TAB ====== -->
+      <div class="sidebar-content panel-hidden" id="panel-style">
+        <div class="device-section">
+          <h3>Layout</h3>
+          <div class="preset-btns">
+            <button class="preset-btn" data-preset="pip-tl" title="PiP Top Left">
+              <span class="preset-icon"><span class="preset-video"></span><span class="preset-cam preset-cam-tl"></span></span>
+              <span class="preset-label">PiP TL</span>
+            </button>
+            <button class="preset-btn" data-preset="pip-tr" title="PiP Top Right">
+              <span class="preset-icon"><span class="preset-video"></span><span class="preset-cam preset-cam-tr"></span></span>
+              <span class="preset-label">PiP TR</span>
+            </button>
+            <button class="preset-btn" data-preset="pip-bl" title="PiP Bottom Left">
+              <span class="preset-icon"><span class="preset-video"></span><span class="preset-cam preset-cam-bl"></span></span>
+              <span class="preset-label">PiP BL</span>
+            </button>
+            <button class="preset-btn preset-btn-active" data-preset="pip-br" title="PiP Bottom Right">
+              <span class="preset-icon"><span class="preset-video"></span><span class="preset-cam preset-cam-br"></span></span>
+              <span class="preset-label">PiP BR</span>
+            </button>
+            <button class="preset-btn" data-preset="side-by-side" title="Side by Side">
+              <span class="preset-icon"><span class="preset-half-left"></span><span class="preset-half-right"></span></span>
+              <span class="preset-label">50/50</span>
+            </button>
+            <button class="preset-btn" data-preset="reactor-over" title="Reactor Over Content">
+              <span class="preset-icon"><span class="preset-video"></span><span class="preset-cam preset-cam-big"></span></span>
+              <span class="preset-label">Reactor</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="pip-only-controls">
+        <div class="device-section">
+          <h3>Snap to Corner</h3>
+          <div class="pip-btns">
+            <button class="snap-btn pip-btn" data-pos="top-left" title="Top Left">TL</button>
+            <button class="snap-btn pip-btn" data-pos="top-right" title="Top Right">TR</button>
+            <button class="snap-btn pip-btn" data-pos="bottom-left" title="Bottom Left">BL</button>
+            <button class="snap-btn pip-btn pip-btn-active" data-pos="bottom-right" title="Bottom Right">BR</button>
+          </div>
+          <span class="style-hint">Or drag on preview</span>
+        </div>
+
+        <div class="device-section">
+          <h3>Webcam Shape</h3>
+          <div class="shape-btns">
+            <button class="shape-btn" data-shape="rect" title="Rectangle">
+              <span class="shape-icon shape-icon-rect"></span>
+            </button>
+            <button class="shape-btn shape-btn-active" data-shape="rounded" title="Rounded">
+              <span class="shape-icon shape-icon-rounded"></span>
+            </button>
+            <button class="shape-btn" data-shape="circle" title="Circle">
+              <span class="shape-icon shape-icon-circle"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>Border</h3>
+          <div class="color-swatches">
+            <button class="color-swatch swatch-active" data-color="#cc0000" style="--swatch-color:#cc0000" title="Red"></button>
+            <button class="color-swatch" data-color="#ffffff" style="--swatch-color:#ffffff" title="White"></button>
+            <button class="color-swatch" data-color="#ffd700" style="--swatch-color:#ffd700" title="Gold"></button>
+            <button class="color-swatch" data-color="#00cc66" style="--swatch-color:#00cc66" title="Green"></button>
+            <button class="color-swatch" data-color="#3366ff" style="--swatch-color:#3366ff" title="Blue"></button>
+            <button class="color-swatch swatch-none" data-color="none" title="None">&#x2715;</button>
+          </div>
+          <div class="slider-row" style="margin-top:8px">
+            <label>Width</label>
+            <input type="range" id="border-width-slider" min="0" max="8" value="3" step="1">
+            <span class="slider-val" id="border-width-value">3px</span>
+          </div>
+        </div>
+
+        <div class="device-section">
+          <h3>PiP Size</h3>
+          <div class="slider-row">
+            <input type="range" id="style-pip-size-slider" min="10" max="45" value="25" step="1">
+            <span class="slider-val" id="style-pip-size-value">25%</span>
+          </div>
+        </div>
+
+        </div><!-- #pip-only-controls -->
+
+        <div class="device-section" id="bg-removal-section">
+          <h3>Background Removal</h3>
+          <div class="toggle-row">
+            <label class="toggle-switch" id="bg-toggle-label">
+              <input type="checkbox" id="bg-removal-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="style-hint" id="bg-status-hint">Remove or blur your webcam background</span>
+          </div>
+          <div class="bg-options hidden" id="bg-options">
+            <div class="bg-mode-btns">
+              <button class="bg-mode-btn bg-mode-active" data-mode="remove">Transparent</button>
+              <button class="bg-mode-btn" data-mode="blur">Blur</button>
+            </div>
+            <div class="slider-row" id="bg-feather-row">
+              <label>Edge</label>
+              <input type="range" id="bg-feather-slider" min="0" max="100" value="50" step="1">
+              <span class="slider-val" id="bg-feather-value">50</span>
+            </div>
+            <div class="slider-row hidden" id="bg-blur-row">
+              <label>Blur</label>
+              <input type="range" id="bg-blur-slider" min="0" max="100" value="50" step="1">
+              <span class="slider-val" id="bg-blur-value">50</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Volume footer (always visible) -->
+      <div class="sidebar-footer">
+        <div class="slider-row">
+          <label>YouTube</label>
           <input type="range" id="tab-volume-slider" min="0" max="100" value="75" step="1">
-          <span class="rx-volume-val" id="tab-volume-value">75%</span>
+          <span class="slider-val" id="tab-volume-value">75%</span>
         </div>
-        <div class="rx-volume-row">
-          <label for="mic-volume-slider">Mic</label>
+        <div class="slider-row">
+          <label>Mic</label>
           <input type="range" id="mic-volume-slider" min="0" max="100" value="100" step="1">
-          <span class="rx-volume-val" id="mic-volume-value">100%</span>
+          <span class="slider-val" id="mic-volume-value">100%</span>
+          <button class="mute-btn" id="mic-mute-btn" title="Mute mic">&#x1F50A;</button>
         </div>
-      </div>
-    </div>
-
-    <!-- Controls -->
-    <div class="rx-section">
-      <div class="rx-controls">
-        <button class="rx-btn rx-btn-record" id="record-btn" disabled>
-          <span class="rx-rec-dot-btn"></span> Record
-        </button>
-        <button class="rx-btn rx-btn-secondary" id="pause-btn" disabled>Pause</button>
-        <button class="rx-btn rx-btn-stop" id="stop-btn" disabled>Stop</button>
-      </div>
-      <div class="rx-timer" id="timer">00:00:00</div>
-      <div class="rx-status" id="status-msg"></div>
-    </div>
-
-    <!-- Output (shown after recording stops) -->
-    <div class="rx-section rx-output hidden" id="output-section">
-      <h2 class="rx-section-title">Recording Output</h2>
-      <video id="output-video" controls class="rx-output-video"></video>
-      <div class="rx-output-meta" id="output-meta"></div>
-      <div class="rx-output-actions">
-        <button class="rx-btn rx-btn-primary" id="download-btn">Download</button>
-        <button class="rx-btn rx-btn-primary" id="upload-btn">Upload to YouTube</button>
-      </div>
-      <div class="rx-upload-progress hidden" id="upload-progress">
-        <div class="rx-upload-bar"><div class="rx-upload-fill" id="upload-fill"></div></div>
-        <span class="rx-upload-text" id="upload-text">Uploading...</span>
       </div>
     </div>
   </div>
 
+  <!-- Output section (shown after recording stops) -->
+  <div class="output-section hidden" id="output-section">
+    <div class="output-inner">
+
+      <!-- Header -->
+      <div class="output-header">
+        <h2>Recording Output</h2>
+        <button class="output-close-btn" id="output-close-btn" title="Close">&times;</button>
+      </div>
+
+      <!-- Video preview -->
+      <video id="output-video" controls class="output-video"></video>
+      <div class="output-meta" id="output-meta"></div>
+
+      <div class="sync-link-row hidden" id="sync-link-row">
+        <span class="sync-label">Sync link:</span>
+        <input type="text" class="sync-link-input" id="sync-link-input" readonly>
+        <button class="btn btn-sm" id="sync-link-copy" title="Copy">Copy</button>
+      </div>
+
+      <!-- Post-recording tools (Phase 8) -->
+      <div class="post-tools" id="post-tools">
+        <div class="post-tools-bar">
+          <button class="post-tool-btn" data-tool="trim" title="Trim">Trim</button>
+          <button class="post-tool-btn" data-tool="silence" title="Silence Removal">Silence</button>
+          <button class="post-tool-btn" data-tool="captions" title="Captions">Captions</button>
+          <button class="post-tool-btn" data-tool="thumbnail" title="Thumbnail">Thumbnail</button>
+          <button class="post-tool-btn" data-tool="ai-meta" title="AI Title & Description">AI Title</button>
+        </div>
+
+        <div class="timeline-container" id="timeline-container">
+          <canvas id="timeline-canvas" height="64"></canvas>
+          <div class="trim-overlay-left" id="trim-overlay-left"></div>
+          <div class="trim-overlay-right" id="trim-overlay-right"></div>
+          <div class="trim-handle trim-handle-start" id="trim-handle-start"></div>
+          <div class="trim-handle trim-handle-end" id="trim-handle-end"></div>
+          <div class="timeline-playhead" id="timeline-playhead"></div>
+          <div class="timeline-times">
+            <span id="timeline-time-start">0:00</span>
+            <span id="timeline-time-end">0:00</span>
+          </div>
+        </div>
+
+        <!-- Trim panel -->
+        <div class="tool-panel hidden" id="tool-panel-trim">
+          <div class="tool-panel-row">
+            <span class="tool-label">In:</span>
+            <span id="trim-in-time">0:00</span>
+            <span class="tool-label">Out:</span>
+            <span id="trim-out-time">0:00</span>
+            <span class="tool-label">Duration:</span>
+            <span id="trim-duration">0:00</span>
+          </div>
+          <button class="btn btn-sm" id="trim-reset-btn">Reset Trim</button>
+        </div>
+
+        <!-- Silence panel -->
+        <div class="tool-panel hidden" id="tool-panel-silence">
+          <div class="tool-panel-row">
+            <label>Threshold</label>
+            <input type="range" id="silence-threshold" min="1" max="10" value="3" step="1">
+            <span id="silence-threshold-val">3%</span>
+          </div>
+          <div class="tool-panel-row">
+            <label>Min duration</label>
+            <input type="range" id="silence-min-duration" min="1" max="10" value="3" step="1">
+            <span id="silence-min-val">3s</span>
+          </div>
+          <div class="tool-panel-row">
+            <button class="btn btn-sm btn-primary" id="silence-detect-btn">Detect Silence</button>
+            <span class="tool-status" id="silence-status"></span>
+          </div>
+          <div class="tool-panel-row">
+            <label class="toggle-inline">
+              <input type="checkbox" id="silence-remove-toggle">
+              <span>Remove silent segments from export</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Captions panel -->
+        <div class="tool-panel hidden" id="tool-panel-captions">
+          <div class="caption-list" id="caption-list">
+            <div class="caption-empty" id="caption-empty">No captions recorded. Enable captions before recording in the Camera tab.</div>
+          </div>
+          <button class="btn btn-sm" id="caption-download-srt" disabled>Download SRT</button>
+        </div>
+
+        <!-- Thumbnail panel -->
+        <div class="tool-panel hidden" id="tool-panel-thumbnail">
+          <div class="tool-panel-row">
+            <button class="btn btn-sm btn-primary" id="thumbnail-capture-btn">Capture Frame</button>
+            <button class="btn btn-sm" id="thumbnail-download-btn" disabled>Download Thumbnail</button>
+          </div>
+          <div class="thumbnail-preview hidden" id="thumbnail-preview">
+            <img id="thumbnail-img" alt="Captured thumbnail">
+          </div>
+        </div>
+
+        <!-- AI Meta panel -->
+        <div class="tool-panel hidden" id="tool-panel-ai-meta">
+          <div class="tool-panel-row">
+            <button class="btn btn-sm btn-primary" id="ai-meta-btn">Generate with AI (1 credit)</button>
+            <span class="tool-status" id="ai-meta-status"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="output-actions">
+        <button class="btn btn-primary" id="download-btn">Download</button>
+        <button class="btn btn-upload" id="upload-toggle-btn">Upload to YouTube</button>
+      </div>
+
+      <!-- Upload form (hidden until toggled) -->
+      <div class="upload-form hidden" id="upload-form">
+
+        <!-- Channel -->
+        <div class="form-row">
+          <label for="upload-channel">Channel</label>
+          <div class="form-row-inline">
+            <select id="upload-channel"><option value="">Loading...</option></select>
+            <button class="btn btn-sm" id="connect-channel-btn" title="Connect a YouTube channel">+ Connect</button>
+          </div>
+        </div>
+
+        <!-- Title -->
+        <div class="form-row">
+          <label for="upload-title">Title</label>
+          <input type="text" id="upload-title" maxlength="100" placeholder="Video title">
+          <span class="char-count" id="upload-title-count">0/100</span>
+        </div>
+
+        <!-- Description -->
+        <div class="form-row">
+          <label for="upload-description">Description</label>
+          <textarea id="upload-description" rows="4" maxlength="5000" placeholder="Video description"></textarea>
+          <span class="char-count" id="upload-desc-count">0/5000</span>
+        </div>
+
+        <!-- Category + Visibility side by side -->
+        <div class="form-row-inline">
+          <div class="form-row" style="flex:1">
+            <label for="upload-category">Category</label>
+            <select id="upload-category"></select>
+          </div>
+          <div class="form-row" style="flex:1">
+            <label for="upload-visibility">Visibility</label>
+            <select id="upload-visibility">
+              <option value="private">Private</option>
+              <option value="unlisted">Unlisted</option>
+              <option value="public">Public</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Made for kids -->
+        <div class="form-row">
+          <label>Made for kids?</label>
+          <div class="radio-row">
+            <label><input type="radio" name="upload-kids" value="false" checked> No</label>
+            <label><input type="radio" name="upload-kids" value="true"> Yes</label>
+          </div>
+        </div>
+
+        <!-- Upload actions -->
+        <div class="upload-actions">
+          <button class="btn btn-primary" id="upload-btn" disabled>Upload</button>
+          <button class="btn btn-sm upload-cancel-btn hidden" id="upload-cancel-btn">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Progress (hidden until upload starts) -->
+      <div class="upload-progress hidden" id="upload-progress">
+        <div class="upload-progress-bar">
+          <div class="upload-progress-fill" id="upload-progress-fill"></div>
+        </div>
+        <span class="upload-progress-text" id="upload-progress-text">0%</span>
+      </div>
+
+      <!-- Result (hidden until upload completes) -->
+      <div class="upload-result hidden" id="upload-result">
+        <span class="upload-result-icon">&#x2714;</span>
+        <span>Uploaded! Video ID: <strong id="upload-video-id"></strong></span>
+        <a id="upload-studio-link" href="#" target="_blank" class="upload-studio-link">Open in YouTube Studio</a>
+      </div>
+
+      <!-- Error (hidden unless error) -->
+      <div class="upload-error hidden" id="upload-error"></div>
+
+    </div>
+  </div>
+
+  <!-- Hidden video elements for streams -->
+  <video id="tab-video" muted playsinline style="display:none;"></video>
+  <video id="cam-video" muted playsinline style="display:none;"></video>
+  <!-- Hidden recording canvas -->
+  <canvas id="recording-canvas" width="1920" height="1080" style="display:none;"></canvas>
+
+  <script src="../config.js"></script>
   <script src="../services/reactions-state.js"></script>
   <script src="reactions.js"></script>
 </body>

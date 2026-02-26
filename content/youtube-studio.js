@@ -1307,6 +1307,7 @@
     const channelContext = await buildChannelContext();
 
     try {
+      console.log('[TubePilot] Sending GENERATE_YOUTUBE_META', { descLength: videoDesc.length, hasProduct: !!product, hasChannel: !!channelContext });
       const response = await chrome.runtime.sendMessage({
         type: 'GENERATE_YOUTUBE_META',
         videoDescription: videoDesc,
@@ -1314,7 +1315,10 @@
         channelContext: channelContext
       });
 
+      console.log('[TubePilot] Got response:', JSON.stringify(response).slice(0, 500));
+
       if (response.error) {
+        console.error('[TubePilot] Response error:', response.error);
         showToast(response.error, true);
         return;
       }
@@ -1329,6 +1333,7 @@
         }
       }).catch(() => {});
     } catch (err) {
+      console.error('[TubePilot] Generation catch error:', err);
       showToast('Generation failed: ' + (err.message || 'unknown error'), true);
     } finally {
       generateBtn.disabled = false;
