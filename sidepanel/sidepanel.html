@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TubePilot Reactions</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="sp-container">
+    <div class="sp-header">
+      <img class="sp-icon" src="../icons/icon48.png" alt="TP">
+      <span class="sp-title">Reactions</span>
+    </div>
+
+    <!-- State display -->
+    <div class="sp-state" id="state-display">
+      <span class="sp-state-dot" id="state-dot"></span>
+      <span class="sp-state-label" id="state-label">Idle</span>
+    </div>
+
+    <!-- Timer -->
+    <div class="sp-timer" id="timer">00:00:00</div>
+
+    <!-- Controls -->
+    <div class="sp-controls">
+      <button class="sp-btn sp-btn-pause" id="pause-btn" disabled>Pause</button>
+      <button class="sp-btn sp-btn-stop" id="stop-btn" disabled>Stop</button>
+    </div>
+
+    <!-- Volume -->
+    <div class="sp-section">
+      <div class="sp-vol-row">
+        <label>YT Vol</label>
+        <input type="range" id="tab-volume" min="0" max="100" value="75" step="1">
+        <span class="sp-vol-val" id="tab-vol-val">75%</span>
+      </div>
+      <div class="sp-vol-row">
+        <label>Mic</label>
+        <input type="range" id="mic-volume" min="0" max="100" value="100" step="1">
+        <span class="sp-vol-val" id="mic-vol-val">100%</span>
+      </div>
+    </div>
+
+    <!-- PiP position -->
+    <div class="sp-section">
+      <div class="sp-pip-row">
+        <label>PiP:</label>
+        <div class="sp-pip-btns">
+          <button class="sp-pip-btn" data-pos="top-left">TL</button>
+          <button class="sp-pip-btn" data-pos="top-right">TR</button>
+          <button class="sp-pip-btn" data-pos="bottom-left">BL</button>
+          <button class="sp-pip-btn sp-pip-active" data-pos="bottom-right">BR</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expand -->
+    <button class="sp-btn sp-btn-expand" id="expand-btn">Expand &#x2197;</button>
+
+    <!-- Stopped message -->
+    <div class="sp-stopped hidden" id="stopped-msg">
+      <a href="#" id="open-reactions-link">Open in Reactions tab</a>
+    </div>
+  </div>
+
+  <script src="../services/reactions-state.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

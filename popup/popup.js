@@ -275,6 +275,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Open Reactions Studio
+  const openReactionsBtn = document.getElementById('open-reactions-btn');
+  openReactionsBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('reactions/reactions.html') });
+    window.close();
+  });
+
   // Open panel on current YouTube Studio page
   const openPanelBtn = document.getElementById('open-panel-btn');
   openPanelBtn.addEventListener('click', async () => {

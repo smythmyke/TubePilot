@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
   "name": "YouTube SEO Title, Tag & Description Generator: AI Metadata | TubePilot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Generate SEO-optimized YouTube titles, descriptions & tags with AI. Auto-upload videos. No monthly fees — pay per generation.",
-  "permissions": ["activeTab", "storage", "identity", "scripting"],
+  "permissions": ["activeTab", "storage", "identity", "scripting", "tabCapture", "offscreen", "sidePanel"],
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
   "host_permissions": [
     "https://business-search-api-815700675676.us-central1.run.app/*",
     "https://www.googleapis.com/youtube/*",
@@ -51,8 +54,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/icon48.png", "icons/icon128.png"],
-      "matches": ["https://studio.youtube.com/*"]
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

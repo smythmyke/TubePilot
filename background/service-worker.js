@@ -3,6 +3,7 @@ importScripts('../services/auth.js');
 importScripts('../services/storage.js');
 importScripts('../services/credits.js');
 importScripts('../services/youtube-api.js');
+importScripts('../services/reactions-state.js');
 
 // --- Auth token helper ---
 
@@ -39,7 +40,9 @@ async function apiFetch(endpoint, options = {}) {
   const headers = await getApiHeaders();
   const mergedOptions = { ...options, headers: { ...headers, ...options.headers } };
 
+  console.log('[TubePilot] apiFetch:', CONFIG.API_URL + endpoint, 'method:', mergedOptions.method || 'GET');
   const response = await fetch(CONFIG.API_URL + endpoint, mergedOptions);
+  console.log('[TubePilot] apiFetch response:', response.status, response.statusText);
 
   if (response.status === 401) {
     try {
@@ -292,6 +295,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .then(() => sendResponse({ success: true }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
+
+    // --- Reactions ---
+    case RX_MESSAGES.START_CAPTURE:
+      handleRxStartCapture(message)
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.STOP_CAPTURE:
+      handleRxStopCapture()
+        .then(result => sendResponse({ success: true, ...result }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.PAUSE:
+      handleRxForward(message)
+        .then(() => {
+          rxState = RX_STATES.PAUSED;
+          broadcastRxState();
+          sendResponse({ success: true });
+        })
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.RESUME:
+      handleRxForward(message)
+        .then(() => {
+          rxState = RX_STATES.RECORDING;
+          broadcastRxState();
+          sendResponse({ success: true });
+        })
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.UPDATE_CONFIG:
+      handleRxForward(message)
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
+    case RX_MESSAGES.GET_STATE:
+      sendResponse({ success: true, state: rxState, tabId: rxTabId });
+      break;
+
+    case RX_MESSAGES.RECORDING_READY:
+      rxState = RX_STATES.STOPPED;
+      broadcastRxState(message);
+      sendResponse({ success: true });
+      break;
   }
 });
 
@@ -300,12 +352,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 const CREDITS_PER_GENERATION = 1;
 
 async function handleGenerateYouTubeMeta(videoDescription, product, channelContext) {
+  console.log('[TubePilot] handleGenerateYouTubeMeta called', { hasDesc: !!videoDescription, hasProduct: !!product, hasChannel: !!channelContext });
+
   const token = await getAuthToken();
+  console.log('[TubePilot] Auth token:', token ? 'present (' + token.slice(0, 8) + '...)' : 'MISSING');
   if (!token) {
     throw new Error('Sign in required to generate metadata');
   }
 
+  console.log('[TubePilot] Deducting credits...');
   const creditResult = await creditsService.useCredits(CREDITS_PER_GENERATION, 'youtube_generate_meta');
+  console.log('[TubePilot] Credit result:', JSON.stringify(creditResult));
   if (!creditResult.success) {
     if (creditResult.error === 'insufficient_credits') {
       throw new Error(`Insufficient credits (${creditResult.creditsRemaining} remaining). Purchase more to continue.`);
@@ -335,6 +392,8 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
     };
   }
 
+  console.log('[TubePilot] Sending API request to /api/v1/youtube-generate-meta', { payloadKeys: Object.keys(payload), descLength: payload.videoDescription.length });
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
@@ -345,7 +404,11 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
       signal: controller.signal
     });
 
+    console.log('[TubePilot] API response status:', res.status);
+
     if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.error('[TubePilot] API error response:', res.status, errBody);
       if (res.status === 401) throw new Error('Session expired — please sign in again');
       if (res.status === 402) throw new Error('Insufficient credits — purchase more to continue');
       if (res.status === 429) throw new Error('Rate limit exceeded — wait a moment');
@@ -354,9 +417,11 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
     }
 
     const data = await res.json();
+    console.log('[TubePilot] API response data keys:', Object.keys(data));
     if (!data.title) throw new Error('Empty response from API');
     return data;
   } catch (err) {
+    console.error('[TubePilot] Generation error:', err.name, err.message);
     if (err.name === 'AbortError') {
       throw new Error('Request timed out — please try again');
     }
@@ -695,4 +760,111 @@ async function handleExpandProductLimit() {
   await chrome.storage.local.set({ tubepilot_product_limit: newLimit });
 
   return { success: true, newLimit, creditsRemaining: result.creditsRemaining };
+}
+
+// ==========================================================
+// Reactions feature — offscreen lifecycle + state management
+// ==========================================================
+
+let rxState = RX_STATES.IDLE;
+let rxTabId = null;
+
+function broadcastRxState(extra = {}) {
+  chrome.runtime.sendMessage({
+    type: RX_MESSAGES.STATE_CHANGED,
+    state: rxState,
+    tabId: rxTabId,
+    ...extra
+  }).catch(() => {});
+}
+
+async function ensureOffscreen() {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT']
+  });
+  if (contexts.length > 0) return;
+
+  await chrome.offscreen.createDocument({
+    url: 'offscreen/offscreen.html',
+    reasons: ['USER_MEDIA', 'AUDIO_PLAYBACK', 'DISPLAY_MEDIA'],
+    justification: 'Recording reaction video with canvas compositing and audio mixing'
+  });
+}
+
+async function closeOffscreen() {
+  try {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT']
+    });
+    if (contexts.length > 0) {
+      await chrome.offscreen.closeDocument();
+    }
+  } catch {}
+}
+
+async function handleRxStartCapture(message) {
+  const tabId = message.tabId;
+  if (!tabId) throw new Error('No tabId provided');
+
+  rxState = RX_STATES.PREPARING;
+  rxTabId = tabId;
+  broadcastRxState();
+
+  // Get tab capture stream ID
+  const streamId = await new Promise((resolve, reject) => {
+    chrome.tabCapture.getMediaStreamId({ targetTabId: tabId }, (id) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(id);
+    });
+  });
+
+  // Create offscreen document
+  await ensureOffscreen();
+
+  // Send streamId + config to offscreen
+  const response = await chrome.runtime.sendMessage({
+    type: RX_MESSAGES.START_CAPTURE,
+    streamId,
+    config: {
+      cameraDeviceId: message.cameraDeviceId,
+      micDeviceId: message.micDeviceId,
+      pipPosition: message.pipPosition || RX_DEFAULTS.pipPosition,
+      pipSize: message.pipSize || RX_DEFAULTS.pipSize,
+      tabVolume: message.tabVolume ?? RX_DEFAULTS.tabVolume,
+      micVolume: message.micVolume ?? RX_DEFAULTS.micVolume
+    }
+  });
+
+  if (!response || !response.success) {
+    rxState = RX_STATES.IDLE;
+    rxTabId = null;
+    broadcastRxState();
+    throw new Error(response?.error || 'Failed to start capture');
+  }
+
+  rxState = RX_STATES.RECORDING;
+  broadcastRxState();
+  return { state: rxState };
+}
+
+async function handleRxStopCapture() {
+  const response = await chrome.runtime.sendMessage({
+    type: RX_MESSAGES.STOP_CAPTURE
+  });
+
+  rxState = RX_STATES.STOPPED;
+  rxTabId = null;
+  broadcastRxState(response || {});
+
+  // Close offscreen document after a short delay to let it finish saving
+  setTimeout(() => closeOffscreen(), 2000);
+
+  return response || {};
+}
+
+async function handleRxForward(message) {
+  return chrome.runtime.sendMessage(message);
 }

@@ -65,6 +65,21 @@ const CONFIG = {
   // Made for Kids
   KIDS_KEY: 'tubepilot_kids',
 
+  // Reactions feature
+  REACTIONS: {
+    DB_NAME: 'tubepilot_reactions',
+    DB_STORE: 'recordings',
+    MAX_RECORDING_AGE_MS: 7 * 24 * 60 * 60 * 1000,
+    DEFAULT_PIP_POSITION: 'bottom-right',
+    DEFAULT_PIP_SIZE: 25,
+    DEFAULT_TAB_VOLUME: 75,
+    DEFAULT_MIC_VOLUME: 100,
+    CANVAS_WIDTH: 1920,
+    CANVAS_HEIGHT: 1080,
+    FRAME_RATE: 30,
+    VIDEO_BITRATE: 2_500_000
+  },
+
   // Upload wizard DOM selectors
   SELECTORS: {
     // Dashboard
