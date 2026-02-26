@@ -13,58 +13,101 @@
       <span class="sp-title">Reactions</span>
     </div>
 
-    <!-- State display -->
-    <div class="sp-state" id="state-display">
-      <span class="sp-state-dot" id="state-dot"></span>
-      <span class="sp-state-label" id="state-label">Idle</span>
+    <!-- Tab bar -->
+    <div class="sp-tabs">
+      <button class="sp-tab sp-tab-active" data-tab="queue">Queue</button>
+      <button class="sp-tab" data-tab="controls">Controls</button>
     </div>
 
-    <!-- Timer -->
-    <div class="sp-timer" id="timer">00:00:00</div>
+    <!-- ====== QUEUE TAB ====== -->
+    <div class="sp-tab-content" id="tab-queue">
 
-    <!-- Controls -->
-    <div class="sp-controls">
-      <button class="sp-btn sp-btn-pause" id="pause-btn" disabled>Pause</button>
-      <button class="sp-btn sp-btn-stop" id="stop-btn" disabled>Stop</button>
-    </div>
-
-    <!-- Volume -->
-    <div class="sp-section">
-      <div class="sp-vol-row">
-        <label>YT Vol</label>
-        <input type="range" id="tab-volume" min="0" max="100" value="75" step="1">
-        <span class="sp-vol-val" id="tab-vol-val">75%</span>
+      <!-- Search -->
+      <div class="sp-search-bar">
+        <input type="text" class="sp-search-input" id="search-input" placeholder="Search or paste URL">
+        <button class="sp-search-btn" id="search-btn">Go</button>
       </div>
-      <div class="sp-vol-row">
-        <label>Mic</label>
-        <input type="range" id="mic-volume" min="0" max="100" value="100" step="1">
-        <span class="sp-vol-val" id="mic-vol-val">100%</span>
+      <div class="sp-search-status" id="search-status"></div>
+
+      <!-- Now Playing -->
+      <div class="sp-np hidden" id="now-playing">
+        <div class="sp-section-label">Now Playing</div>
+        <div class="sp-np-card" id="now-playing-card"></div>
+      </div>
+
+      <!-- Queue list -->
+      <div class="sp-queue hidden" id="queue-section">
+        <div class="sp-section-label">Up Next</div>
+        <div class="sp-queue-list" id="queue-list"></div>
+      </div>
+
+      <!-- Search results -->
+      <div class="sp-results hidden" id="results-section">
+        <div class="sp-section-label">Results</div>
+        <div class="sp-results-list" id="results-list"></div>
       </div>
     </div>
 
-    <!-- PiP position -->
-    <div class="sp-section">
-      <div class="sp-pip-row">
-        <label>PiP:</label>
-        <div class="sp-pip-btns">
-          <button class="sp-pip-btn" data-pos="top-left">TL</button>
-          <button class="sp-pip-btn" data-pos="top-right">TR</button>
-          <button class="sp-pip-btn" data-pos="bottom-left">BL</button>
-          <button class="sp-pip-btn sp-pip-active" data-pos="bottom-right">BR</button>
+    <!-- ====== CONTROLS TAB ====== -->
+    <div class="sp-tab-content sp-tab-hidden" id="tab-controls">
+
+      <!-- State display -->
+      <div class="sp-state" id="state-display">
+        <span class="sp-state-dot" id="state-dot"></span>
+        <span class="sp-state-label" id="state-label">Idle</span>
+      </div>
+
+      <!-- Timer -->
+      <div class="sp-timer" id="timer">00:00:00</div>
+
+      <!-- Controls -->
+      <div class="sp-controls">
+        <button class="sp-btn sp-btn-pause" id="pause-btn" disabled>Pause</button>
+        <button class="sp-btn sp-btn-stop" id="stop-btn" disabled>Stop</button>
+      </div>
+
+      <!-- Volume -->
+      <div class="sp-section">
+        <div class="sp-vol-row">
+          <label>YT Vol</label>
+          <input type="range" id="tab-volume" min="0" max="100" value="75" step="1">
+          <span class="sp-vol-val" id="tab-vol-val">75%</span>
+        </div>
+        <div class="sp-vol-row">
+          <label>Mic</label>
+          <input type="range" id="mic-volume" min="0" max="100" value="100" step="1">
+          <span class="sp-vol-val" id="mic-vol-val">100%</span>
         </div>
       </div>
+
+      <!-- PiP position -->
+      <div class="sp-section">
+        <div class="sp-pip-row">
+          <label>PiP:</label>
+          <div class="sp-pip-btns">
+            <button class="sp-pip-btn" data-pos="top-left">TL</button>
+            <button class="sp-pip-btn" data-pos="top-right">TR</button>
+            <button class="sp-pip-btn" data-pos="bottom-left">BL</button>
+            <button class="sp-pip-btn sp-pip-active" data-pos="bottom-right">BR</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stopped message -->
+      <div class="sp-stopped hidden" id="stopped-msg">
+        <a href="#" id="open-reactions-link">Open in Reactions tab</a>
+      </div>
     </div>
 
-    <!-- Expand -->
-    <button class="sp-btn sp-btn-expand" id="expand-btn">Expand &#x2197;</button>
-
-    <!-- Stopped message -->
-    <div class="sp-stopped hidden" id="stopped-msg">
-      <a href="#" id="open-reactions-link">Open in Reactions tab</a>
+    <!-- Bottom: always visible -->
+    <div class="sp-bottom">
+      <button class="sp-btn sp-btn-expand" id="expand-btn">Open Reactions Tab &#x2197;</button>
     </div>
   </div>
 
+  <script src="../config.js"></script>
   <script src="../services/reactions-state.js"></script>
+  <script src="../services/queue-storage.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

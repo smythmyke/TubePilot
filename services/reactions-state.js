@@ -39,7 +39,17 @@ const RX_MESSAGES = {
 
   // Queue / Search
   YOUTUBE_SEARCH: 'RX_YOUTUBE_SEARCH',
-  LOAD_NEXT_VIDEO: 'RX_LOAD_NEXT_VIDEO'
+  LOAD_NEXT_VIDEO: 'RX_LOAD_NEXT_VIDEO',
+  QUEUE_PLAY_VIDEO: 'RX_QUEUE_PLAY_VIDEO',
+
+  // Content script ↔ SW communication
+  YT_CONTENT_READY: 'RX_YT_CONTENT_READY',
+  YT_PLAYER_STATE: 'RX_YT_PLAYER_STATE',
+  YT_PLAY: 'RX_YT_PLAY',
+  YT_PAUSE: 'RX_YT_PAUSE',
+  YT_SEEK: 'RX_YT_SEEK',
+  YT_ACTIVATE: 'RX_YT_ACTIVATE',
+  YT_DEACTIVATE: 'RX_YT_DEACTIVATE'
 };
 
 const RX_VIEWS = {
@@ -73,6 +83,11 @@ const RX_PRESETS = {
   PIP_BR: 'pip-br',
   SIDE_BY_SIDE: 'side-by-side',
   REACTOR_OVER: 'reactor-over'
+};
+
+const RX_STORAGE_KEYS = {
+  QUEUE: 'tubepilot_rx_queue',
+  SW_STATE: 'tubepilot_rx_sw_state'
 };
 
 const RX_PIP_BORDER_COLORS = ['#cc0000', '#ffffff', '#ffd700', '#00cc66', '#3366ff', 'none'];

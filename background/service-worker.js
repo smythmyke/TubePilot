@@ -4,6 +4,7 @@ importScripts('../services/storage.js');
 importScripts('../services/credits.js');
 importScripts('../services/youtube-api.js');
 importScripts('../services/reactions-state.js');
+importScripts('../services/queue-storage.js');
 
 // --- Auth token helper ---
 
@@ -298,14 +299,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     // --- Reactions ---
     case RX_MESSAGES.LOAD_VIDEO:
-      handleRxLoadVideo(message, sender.tab?.id)
+      handleRxSetYouTubeTab(message, sender.tab?.id)
         .then(result => sendResponse({ success: true, ...result }))
         .catch(err => {
-          // Clean up player tab on failure
-          if (rxPlayerTabId) {
-            chrome.tabs.remove(rxPlayerTabId).catch(() => {});
-            rxPlayerTabId = null;
-          }
           rxState = RX_STATES.IDLE;
           broadcastRxState();
           sendResponse({ success: false, error: err.message });
@@ -319,34 +315,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case RX_MESSAGES.LOAD_NEXT_VIDEO:
-      handleRxLoadNextVideo(message, sender.tab?.id)
+      handleRxNavigateYouTube(message, sender.tab?.id)
         .then(result => sendResponse({ success: true, ...result }))
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
     case RX_MESSAGES.PLAY:
-    case RX_MESSAGES.PAUSE_VIDEO:
-    case RX_MESSAGES.SEEK:
-      handleRxForwardToPlayer(message)
-        .then(result => sendResponse(result || { success: true }))
-        .catch(err => sendResponse({ success: false, error: err.message }));
+      if (rxYouTubeTabId) {
+        chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_PLAY })
+          .then(() => sendResponse({ success: true }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+      } else {
+        sendResponse({ success: false, error: 'No YouTube tab' });
+      }
       return true;
 
-    case RX_MESSAGES.PLAYER_STATE:
-      // Forward player state from player tab to reactions tab
+    case RX_MESSAGES.PAUSE_VIDEO:
+      if (rxYouTubeTabId) {
+        chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_PAUSE })
+          .then(() => sendResponse({ success: true }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+      } else {
+        sendResponse({ success: false, error: 'No YouTube tab' });
+      }
+      return true;
+
+    case RX_MESSAGES.SEEK:
+      if (rxYouTubeTabId) {
+        chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_SEEK, time: message.time })
+          .then(() => sendResponse({ success: true }))
+          .catch(err => sendResponse({ success: false, error: err.message }));
+      } else {
+        sendResponse({ success: false, error: 'No YouTube tab' });
+      }
+      return true;
+
+    case RX_MESSAGES.YT_PLAYER_STATE:
+      // Forward player state from content script to reactions tab
       if (rxReactionsTabId) {
-        chrome.tabs.sendMessage(rxReactionsTabId, message).catch(() => {});
+        chrome.tabs.sendMessage(rxReactionsTabId, {
+          type: RX_MESSAGES.PLAYER_STATE,
+          currentTime: message.currentTime,
+          duration: message.duration,
+          playerState: message.playerState
+        }).catch(() => {});
       }
       break;
 
-    case RX_MESSAGES.PLAYER_ERROR:
-      if (rxReactionsTabId) {
-        chrome.tabs.sendMessage(rxReactionsTabId, message).catch(() => {});
-      }
-      break;
-
-    case RX_MESSAGES.PLAYER_READY:
-      // Handled by the one-shot listener in handleRxLoadVideo
+    case RX_MESSAGES.YT_CONTENT_READY:
+      // Content script loaded in a YouTube tab
       break;
 
     case RX_MESSAGES.START_CAPTURE:
@@ -374,7 +391,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break;
 
     case RX_MESSAGES.GET_STATE:
-      sendResponse({ success: true, state: rxState, playerTabId: rxPlayerTabId });
+      sendResponse({ success: true, state: rxState, youTubeTabId: rxYouTubeTabId });
       break;
 
     case RX_MESSAGES.RECORDING_READY:
@@ -383,12 +400,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       break;
 
-    case RX_MESSAGES.CLEANUP:
-      if (rxPlayerTabId) {
-        chrome.tabs.remove(rxPlayerTabId).catch(() => {});
-        rxPlayerTabId = null;
+    case RX_MESSAGES.QUEUE_PLAY_VIDEO:
+      // Forward to reactions tab from sidepanel
+      if (rxReactionsTabId) {
+        chrome.tabs.sendMessage(rxReactionsTabId, message)
+          .then(() => sendResponse({ success: true }))
+          .catch(() => sendResponse({ success: false, error: 'Reactions tab not responding' }));
+      } else {
+        sendResponse({ success: false, error: 'No reactions tab open' });
       }
-      rxStreamId = null;
+      return true;
+
+    case RX_MESSAGES.CLEANUP:
+      rxYouTubeTabId = null;
       rxState = RX_STATES.IDLE;
       broadcastRxState();
       sendResponse({ success: true });
@@ -812,15 +836,53 @@ async function handleExpandProductLimit() {
 }
 
 // ==========================================================
-// Reactions feature — player tab + state management
+// Reactions feature — YouTube tab tracking + state management
 // ==========================================================
 
 let rxState = RX_STATES.IDLE;
-let rxPlayerTabId = null;
+let rxYouTubeTabId = null;
 let rxReactionsTabId = null;
-let rxStreamId = null;
+
+// --- Persist/restore SW state across restarts ---
+
+async function persistRxSwState() {
+  await chrome.storage.session.set({
+    [RX_STORAGE_KEYS.SW_STATE]: { rxState, rxYouTubeTabId, rxReactionsTabId }
+  });
+}
+
+(async () => {
+  try {
+    const result = await chrome.storage.session.get([RX_STORAGE_KEYS.SW_STATE]);
+    const saved = result[RX_STORAGE_KEYS.SW_STATE];
+    if (!saved) return;
+
+    if (saved.rxYouTubeTabId) {
+      try {
+        await chrome.tabs.get(saved.rxYouTubeTabId);
+        rxYouTubeTabId = saved.rxYouTubeTabId;
+      } catch {
+        rxYouTubeTabId = null;
+      }
+    }
+
+    if (saved.rxReactionsTabId) {
+      try {
+        await chrome.tabs.get(saved.rxReactionsTabId);
+        rxReactionsTabId = saved.rxReactionsTabId;
+      } catch {
+        rxReactionsTabId = null;
+      }
+    }
+
+    rxState = saved.rxState || RX_STATES.IDLE;
+  } catch (err) {
+    console.error('RX restore failed:', err.message);
+  }
+})();
 
 function broadcastRxState(extra = {}) {
+  persistRxSwState();
   chrome.runtime.sendMessage({
     type: RX_MESSAGES.STATE_CHANGED,
     state: rxState,
@@ -828,72 +890,56 @@ function broadcastRxState(extra = {}) {
   }).catch(() => {});
 }
 
-// --- LOAD_VIDEO: create player tab, capture it, return streamId ---
+// --- SET_YOUTUBE_TAB: reactions page created the tab + captured via getDisplayMedia ---
 
-async function handleRxLoadVideo(message, senderTabId) {
-  const videoId = message.videoId;
-  if (!videoId) throw new Error('No videoId provided');
+async function handleRxSetYouTubeTab(message, senderTabId) {
+  const youTubeTabId = message.youTubeTabId;
+  if (!youTubeTabId) throw new Error('No youTubeTabId provided');
 
+  rxYouTubeTabId = youTubeTabId;
   rxReactionsTabId = senderTabId;
-  rxState = RX_STATES.LOADING;
-  broadcastRxState();
-
-  // Create player tab (background)
-  const playerTab = await chrome.tabs.create({
-    url: chrome.runtime.getURL('reactions/youtube-player.html'),
-    active: false
-  });
-  rxPlayerTabId = playerTab.id;
-
-  // Wait for PLAYER_READY from the player tab
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      chrome.runtime.onMessage.removeListener(listener);
-      reject(new Error('Player tab timed out'));
-    }, CONFIG.REACTIONS.PLAYER_INIT_TIMEOUT_MS);
-
-    function listener(msg, sender) {
-      if (msg.type === RX_MESSAGES.PLAYER_READY && sender.tab?.id === rxPlayerTabId) {
-        clearTimeout(timeout);
-        chrome.runtime.onMessage.removeListener(listener);
-        resolve();
-      }
-    }
-    chrome.runtime.onMessage.addListener(listener);
-  });
-
-  // Tell the player tab to load the video
-  await chrome.tabs.sendMessage(rxPlayerTabId, {
-    type: RX_MESSAGES.LOAD_VIDEO,
-    videoId
-  });
-
-  // Capture the player tab
-  const streamId = await new Promise((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId(
-      { targetTabId: rxPlayerTabId },
-      (id) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        resolve(id);
-      }
-    );
-  });
-
-  rxStreamId = streamId;
   rxState = RX_STATES.READY;
   broadcastRxState();
 
-  return { streamId };
+  // Activate content script polling in the YouTube tab
+  try {
+    await chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_ACTIVATE });
+  } catch {
+    // Content script may not be ready yet — re-injects on page load
+  }
+
+  return {};
 }
 
-// --- Playback forwarding to player tab ---
+// --- LOAD_NEXT_VIDEO: navigate the captured YouTube tab to a new embed URL ---
 
-async function handleRxForwardToPlayer(message) {
-  if (!rxPlayerTabId) throw new Error('No player tab');
-  return chrome.tabs.sendMessage(rxPlayerTabId, message);
+async function handleRxNavigateYouTube(message, senderTabId) {
+  const videoId = message.videoId;
+  if (!videoId) throw new Error('No videoId provided');
+
+  if (!rxYouTubeTabId) {
+    throw new Error('No YouTube tab');
+  }
+
+  if (senderTabId) {
+    rxReactionsTabId = senderTabId;
+  }
+
+  // Navigate the already-captured YouTube tab — stream persists
+  await chrome.tabs.update(rxYouTubeTabId, {
+    url: `https://www.youtube.com/watch?v=${videoId}&autoplay=1`
+  });
+
+  persistRxSwState();
+
+  // Re-activate content script after navigation — content script re-injects on full nav
+  setTimeout(async () => {
+    try {
+      await chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_ACTIVATE });
+    } catch {}
+  }, 2000);
+
+  return {};
 }
 
 // --- Recording state management (recording happens in reactions page) ---
@@ -920,40 +966,16 @@ async function handleRxYouTubeSearch(message) {
   return await youtubeApiService.searchVideos(query, token, message.maxResults);
 }
 
-// --- LOAD_NEXT_VIDEO: change video in existing player tab (no re-capture) ---
-
-async function handleRxLoadNextVideo(message, senderTabId) {
-  const videoId = message.videoId;
-  if (!videoId) throw new Error('No videoId provided');
-
-  if (!rxPlayerTabId) {
-    throw new Error('No player tab');
-  }
-
-  if (senderTabId) {
-    rxReactionsTabId = senderTabId;
-  }
-
-  // Tell existing player tab to load the new video
-  await chrome.tabs.sendMessage(rxPlayerTabId, {
-    type: RX_MESSAGES.LOAD_VIDEO,
-    videoId
-  });
-
-  return { streamId: rxStreamId };
-}
-
-// --- Player tab cleanup on close ---
+// --- YouTube tab cleanup on close ---
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === rxPlayerTabId) {
-    rxPlayerTabId = null;
-    rxStreamId = null;
+  if (tabId === rxYouTubeTabId) {
+    rxYouTubeTabId = null;
     if (rxState === RX_STATES.RECORDING || rxState === RX_STATES.PAUSED) {
       rxState = RX_STATES.STOPPED;
     } else if (rxState !== RX_STATES.STOPPED) {
       rxState = RX_STATES.IDLE;
     }
-    broadcastRxState({ playerClosed: true });
+    broadcastRxState({ youTubeTabClosed: true });
   }
 });

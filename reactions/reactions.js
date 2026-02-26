@@ -223,6 +223,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isFirstVideoLoad = true;
   let lastSearchResults = [];
 
+  // Write-through queue persistence
+  let _writingQueue = false;
+  async function saveQueueState() {
+    _writingQueue = true;
+    await QueueStorage.save({ nowPlaying, queue: videoQueue, playHistory });
+    setTimeout(() => { _writingQueue = false; }, 50);
+  }
+  QueueStorage.onChange((data) => {
+    if (_writingQueue) return;
+    videoQueue = data.queue || [];
+    nowPlaying = data.nowPlaying;
+    playHistory = data.playHistory || [];
+    renderNowPlaying();
+    renderQueue();
+    updateNavButtons();
+  });
+
   // Layout system (Phase 6)
   let currentLayout = RX_LAYOUTS.PIP;
   let activePreset = RX_PRESETS.PIP_BR;
@@ -237,27 +254,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // (a) Video loading & Queue system
   // ============================================================
 
-  function parseVideoId(input) {
-    if (!input) return null;
-    input = input.trim();
-    // Direct ID (11 chars)
-    if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
-    // URL patterns
-    try {
-      const url = new URL(input);
-      if (url.hostname.includes('youtube.com') || url.hostname.includes('youtu.be')) {
-        if (url.hostname === 'youtu.be') return url.pathname.slice(1);
-        const v = url.searchParams.get('v');
-        if (v) return v;
-        // /embed/ID
-        const embedMatch = url.pathname.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
-        if (embedMatch) return embedMatch[1];
-      }
-    } catch {}
-    // Fallback — treat as ID if it looks plausible
-    if (/^[a-zA-Z0-9_-]{10,12}$/.test(input)) return input;
-    return null;
-  }
+  // parseVideoId() is now in services/queue-storage.js (shared with sidepanel)
 
   function setSearchStatus(msg, type) {
     searchStatus.textContent = msg;
@@ -350,6 +347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       setSearchStatus('Added to queue', 'success');
       renderQueue();
       updateNavButtons();
+      saveQueueState();
     }
   }
 
@@ -373,37 +371,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderNowPlaying();
     renderQueue();
     updateNavButtons();
+    saveQueueState();
 
     if (isFirstVideoLoad) {
-      // Full flow: create player tab, capture, set up audio
+      // Full flow: open embed tab, user picks it via getDisplayMedia (one-time)
       setSearchStatus('Loading video...', 'loading');
       try {
+        // 1. Open the YouTube video in a new tab (content script strips UI)
+        const ytTab = await chrome.tabs.create({
+          url: `https://www.youtube.com/watch?v=${videoObj.videoId}&autoplay=1`,
+          active: true
+        });
+
+        // 2. Small delay for page to start loading
+        await new Promise(r => setTimeout(r, 1500));
+
+        // 3. Call getDisplayMedia — user picks the YouTube embed tab
+        tabStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { displaySurface: 'browser' },
+          audio: true,
+          preferCurrentTab: false
+        });
+
+        // 4. Tell SW which tab we captured
         const response = await chrome.runtime.sendMessage({
           type: RX_MESSAGES.LOAD_VIDEO,
+          youTubeTabId: ytTab.id,
           videoId: videoObj.videoId
         });
+        if (!response?.success) throw new Error(response?.error || 'Failed to register YouTube tab');
 
-        if (!response || !response.success) {
-          throw new Error(response?.error || 'Failed to load video');
-        }
-
-        // Got streamId — get the MediaStream
-        const streamId = response.streamId;
-        tabStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            mandatory: {
-              chromeMediaSource: 'tab',
-              chromeMediaSourceId: streamId
-            }
-          },
-          video: {
-            mandatory: {
-              chromeMediaSource: 'tab',
-              chromeMediaSourceId: streamId
-            }
-          }
-        });
-
+        // 5. Set up video element
         tabVideo.srcObject = tabStream;
         await tabVideo.play();
 
@@ -419,8 +417,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           recordingCanvas.height = h;
         }
 
-        // Set up audio mixing
+        // 6. Set up audio mixing
         setupAudioMixing();
+
+        // 7. Start webcam for canvas compositing (PiP / Camera view)
+        if (!camStream) {
+          await startCamStream();
+        }
 
         // Hide placeholder, start render loop
         previewPlaceholder.classList.add('hidden');
@@ -431,17 +434,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         seekInput.disabled = false;
         recordBtn.disabled = false;
 
+        // 8. Detect stream end (tab closed or user stops sharing)
+        tabStream.getVideoTracks()[0]?.addEventListener('ended', handleStreamEnded);
+
         isFirstVideoLoad = false;
         setSearchStatus('');
       } catch (err) {
+        console.error('playVideo first-load error:', err.message);
         setSearchStatus('Error: ' + err.message, 'error');
-        // Revert nowPlaying
         nowPlaying = playHistory.length > 0 ? playHistory.pop() : null;
         renderNowPlaying();
         updateNavButtons();
       }
     } else {
-      // Lightweight: just change video in existing player tab
+      // Navigate the captured YouTube tab to new video (stream persists)
       setSearchStatus('Loading next video...', 'loading');
       try {
         const response = await chrome.runtime.sendMessage({
@@ -450,8 +456,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         if (!response || !response.success) {
-          if (response?.error === 'No player tab') {
-            // Player tab was closed — fall back to full flow
+          if (response?.error === 'No YouTube tab') {
+            // YouTube tab was closed — fall back to full flow
             isFirstVideoLoad = true;
             await playVideo(videoObj);
             return;
@@ -460,6 +466,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         setSearchStatus('');
       } catch (err) {
+        console.error('playVideo next-load error:', err.message);
         setSearchStatus('Error: ' + err.message, 'error');
         nowPlaying = playHistory.length > 0 ? playHistory.pop() : null;
         renderNowPlaying();
@@ -468,10 +475,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  function handleStreamEnded() {
+    tabStream = null;
+    isFirstVideoLoad = true;
+    previewPlaceholder.classList.remove('hidden');
+    playPauseBtn.disabled = true;
+    seekInput.disabled = true;
+    recordBtn.disabled = true;
+    // Stop recording if active
+    if (currentState === RX_STATES.RECORDING || currentState === RX_STATES.PAUSED) {
+      stopBtn.click();
+    }
+  }
+
   function playNextInQueue() {
     if (videoQueue.length === 0) return;
     const next = videoQueue.shift();
-    playVideo(next);
+    playVideo(next); // playVideo calls saveQueueState
   }
 
   function playPrevious() {
@@ -482,8 +502,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       videoQueue.unshift(nowPlaying);
     }
     nowPlaying = null; // prevent double-push in playVideo
-    playVideo(prev);
-    // Remove the duplicate history entry that playVideo would add (since nowPlaying was null)
+    playVideo(prev); // playVideo calls saveQueueState
   }
 
   function removeFromQueue(index) {
@@ -491,6 +510,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       videoQueue.splice(index, 1);
       renderQueue();
       updateNavButtons();
+      saveQueueState();
     }
   }
 
@@ -501,6 +521,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     videoQueue[index] = videoQueue[newIndex];
     videoQueue[newIndex] = temp;
     renderQueue();
+    saveQueueState();
   }
 
   // --- Nav buttons ---
@@ -581,20 +602,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  function isVideoQueued(videoId) {
+    if (nowPlaying && nowPlaying.videoId === videoId) return true;
+    return videoQueue.some(v => v.videoId === videoId);
+  }
+
   function renderSearchResults() {
     if (lastSearchResults.length === 0) {
       searchResultsSection.classList.add('hidden');
       return;
     }
     searchResultsSection.classList.remove('hidden');
-    searchResultsList.innerHTML = lastSearchResults.map((v, i) => `
-      <div class="search-result" data-index="${i}">
+
+    // Sort: unadded items first, added items at bottom
+    const sorted = lastSearchResults.map((v, i) => ({ v, origIdx: i, added: isVideoQueued(v.videoId) }));
+    sorted.sort((a, b) => (a.added === b.added ? 0 : a.added ? 1 : -1));
+
+    searchResultsList.innerHTML = sorted.map(({ v, origIdx, added }) => `
+      <div class="search-result${added ? ' sr-added' : ''}" data-index="${origIdx}">
         <img class="sr-thumb" src="${escapeAttr(v.thumbnail)}" alt="">
         <div class="sr-info">
           <div class="sr-title" title="${escapeAttr(v.title)}">${escapeHtml(v.title)}</div>
           <div class="sr-channel">${escapeHtml(v.channelTitle)}</div>
         </div>
-        <button class="sr-add-btn" data-index="${i}">+ Queue</button>
+        ${added
+          ? '<span class="sr-added-badge">\u2713 Added</span>'
+          : `<button class="sr-add-btn" data-index="${origIdx}">+ Queue</button>`}
       </div>
     `).join('');
 
@@ -603,18 +636,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.stopPropagation();
         const idx = parseInt(btn.dataset.index);
         const videoObj = lastSearchResults[idx];
-        if (videoObj) addToQueueOrPlay(videoObj);
+        if (videoObj) {
+          addToQueueOrPlay(videoObj);
+          renderSearchResults(); // re-render to show checkmark + move to bottom
+        }
       });
     });
   }
 
+  function decodeHtmlEntities(str) {
+    if (!str) return '';
+    const el = document.createElement('textarea');
+    el.innerHTML = str;
+    return el.value;
+  }
+
   function escapeHtml(str) {
     if (!str) return '';
+    str = decodeHtmlEntities(str);
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function escapeAttr(str) {
     if (!str) return '';
+    str = decodeHtmlEntities(str);
     return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
@@ -2387,12 +2432,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     switch (message.type) {
       case RX_MESSAGES.STATE_CHANGED:
-        if (message.playerClosed && currentState === RX_STATES.RECORDING) {
-          // Player tab was closed during recording
-          stopBtn.click();
-        }
-        if (message.playerClosed) {
-          isFirstVideoLoad = true;
+        if (message.youTubeTabClosed) {
+          handleStreamEnded();
         }
         break;
 
@@ -2405,23 +2446,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         break;
 
-      case RX_MESSAGES.PLAYER_READY:
-        // Player tab signals ready after loading a new video
-        setSearchStatus('');
-        break;
-
-      case RX_MESSAGES.PLAYER_ERROR: {
-        const code = message.code;
-        const errMsg = message.error || 'unknown';
-        // Codes 100 (not found), 101/150 (not embeddable) — auto-skip
-        if ((code === 100 || code === 101 || code === 150) && videoQueue.length > 0) {
-          setSearchStatus('Skipping: ' + errMsg, 'error');
-          setTimeout(() => playNextInQueue(), 1500);
-        } else {
-          setSearchStatus('Player error: ' + errMsg, 'error');
+      case RX_MESSAGES.QUEUE_PLAY_VIDEO:
+        if (message.videoObj) {
+          addToQueueOrPlay(message.videoObj);
         }
         break;
-      }
     }
   });
 
@@ -3431,6 +3460,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateNavButtons();
   cleanupOldRecordings();
 
+  // Load persisted queue from storage (clear stale nowPlaying — can't resume a dead session)
+  try {
+    const queueData = await QueueStorage.load();
+    videoQueue = queueData.queue || [];
+    playHistory = queueData.playHistory || [];
+    nowPlaying = null;
+    // Re-queue the old nowPlaying so the video isn't lost
+    if (queueData.nowPlaying) {
+      const alreadyQueued = videoQueue.some(v => v.videoId === queueData.nowPlaying.videoId);
+      if (!alreadyQueued) videoQueue.unshift(queueData.nowPlaying);
+    }
+    renderNowPlaying();
+    renderQueue();
+    updateNavButtons();
+    saveQueueState();
+  } catch {}
+
   // Check for existing session
   try {
     const stateResp = await chrome.runtime.sendMessage({ type: RX_MESSAGES.GET_STATE });
@@ -3438,4 +3484,5 @@ document.addEventListener('DOMContentLoaded', async () => {
       setState(stateResp.state);
     }
   } catch {}
+
 });

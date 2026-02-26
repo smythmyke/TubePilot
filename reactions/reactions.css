@@ -1403,6 +1403,19 @@ select:focus, input[type="text"]:focus {
   color: white;
 }
 
+.search-result.sr-added {
+  opacity: 0.5;
+}
+
+.sr-added-badge {
+  padding: 3px 8px;
+  color: #4caf50;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* ====== POST-RECORDING TOOLS (Phase 8) ====== */
 
 .post-tools {
