@@ -182,7 +182,7 @@
       <div class="tp-panel-header">
         <img src="${chrome.runtime.getURL('icons/icon48.png')}" width="28" height="28" style="border-radius:50%;">
         <div class="tp-panel-header-text">
-          <div class="tp-panel-title">TubePilot</div>
+          <div class="tp-panel-title">Tube<span>Pilot</span></div>
           <div class="tp-panel-subtitle">YouTube Metadata Generator</div>
         </div>
         <div class="tp-credits-badge" id="tp-credits-badge">
@@ -195,6 +195,11 @@
         <button class="tp-panel-tab tp-panel-tab-active" id="tp-tab-generator">Generator</button>
         <button class="tp-panel-tab" id="tp-tab-history">History</button>
       </div>
+      <button class="tp-reactions-banner" id="tp-reactions-banner">
+        <span class="tp-rb-text">Reactions Studio</span>
+        <span class="tp-rb-badge">Free</span>
+        <span class="tp-rb-arrow">&#8250;</span>
+      </button>
       <div class="tp-panel-body">
         <div id="tp-view-generator">
         <!-- Auth required state -->
@@ -489,6 +494,11 @@
   // --- Wire Up Panel Events ---
   function wireUpPanel() {
     panel.querySelector('.tp-close-btn').addEventListener('click', closePanel);
+
+    // Reactions Studio banner
+    panel.querySelector('#tp-reactions-banner').addEventListener('click', () => {
+      chrome.runtime.sendMessage({ type: 'OPEN_REACTIONS' });
+    });
 
     // Tab switching (Generator / History)
     panel.querySelector('#tp-tab-generator').addEventListener('click', () => switchTab('generator'));

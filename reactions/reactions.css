@@ -102,6 +102,38 @@ body {
 .btn-primary { background: #cc0000; color: white; }
 .btn-primary:hover:not(:disabled) { background: #a00; }
 
+.btn-ai-generate {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: white;
+  border: none;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: opacity 0.2s, background 0.2s;
+}
+.btn-ai-generate:hover:not(:disabled) {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+.btn-ai-generate:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ai-generate-hint {
+  display: block;
+  font-size: 11px;
+  color: #777;
+  margin-top: 4px;
+}
+
+.ai-generate-status {
+  display: block;
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 4px;
+}
+
 .btn-rec {
   background: #cc0000;
   color: white;
@@ -124,6 +156,13 @@ body {
   border: 1px solid #5a2d2d;
 }
 .btn-stop:hover:not(:disabled) { background: #4a3030; }
+
+.btn-popout {
+  background: #3f3f3f;
+  color: #f1f1f1;
+  border: 1px solid #4a4a4a;
+}
+.btn-popout:hover:not(:disabled) { background: #4a4a4a; }
 
 /* ====== MAIN LAYOUT ====== */
 .main {
@@ -375,6 +414,45 @@ body {
   margin-bottom: 8px;
 }
 
+/* Mic level meter */
+.mic-meter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.mic-meter-row label {
+  font-size: 11px;
+  color: #888;
+  white-space: nowrap;
+  min-width: 32px;
+}
+
+.mic-meter-track {
+  flex: 1;
+  height: 6px;
+  background: #222;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.mic-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #eab308 70%, #ef4444 95%);
+  border-radius: 3px;
+  transition: width 0.06s linear;
+}
+
+.mic-meter-label {
+  font-size: 10px;
+  color: #666;
+  min-width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .device-preview {
   width: 100%;
   aspect-ratio: 16/9;
@@ -446,6 +524,39 @@ select, input[type="text"] {
 }
 
 select:focus, input[type="text"]:focus {
+  border-color: #cc0000;
+}
+
+.device-select-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.device-select-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-refresh-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  color: #aaa;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.device-refresh-btn:hover {
+  color: #fff;
   border-color: #cc0000;
 }
 
@@ -597,35 +708,6 @@ select:focus, input[type="text"]:focus {
 }
 
 /* Sync link row */
-.sync-link-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #1a1a1a;
-  border: 1px solid #2a2a2a;
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 12px;
-}
-
-.sync-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #888;
-  white-space: nowrap;
-}
-
-.sync-link-input {
-  flex: 1;
-  font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 11px;
-  background: #2a2a2a;
-  color: #f1f1f1;
-  border: 1px solid #3a3a3a;
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
 /* Cam-only badge */
 .cam-only-badge {
   background: #e67e00;
@@ -686,6 +768,120 @@ select:focus, input[type="text"]:focus {
   border-top: 1px solid #2a2a2a;
   background: #1a1a1a;
   flex-shrink: 0;
+  overflow-y: auto;
+  max-height: 50vh;
+}
+
+/* Audio Dev Tools */
+.audio-dev-panel {
+  margin-top: 10px;
+  border-top: 1px solid #333;
+  padding-top: 6px;
+}
+
+.audio-dev-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 4px 0;
+  user-select: none;
+}
+
+.audio-dev-header:hover { color: #999; }
+
+.audio-dev-chevron {
+  font-size: 8px;
+  transition: transform 0.2s;
+  display: inline-block;
+}
+
+.audio-dev-chevron.open { transform: rotate(90deg); }
+
+.audio-dev-body { padding-top: 8px; }
+
+.audio-dev-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  background: #151515;
+  border-radius: 4px;
+  padding: 5px 8px;
+  margin-bottom: 8px;
+  font-size: 10px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
+.audio-dev-clip-bar {
+  position: relative;
+  height: 6px;
+  background: #222;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.audio-dev-clip-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #22c55e, #eab308 70%, #ef4444 95%);
+  border-radius: 3px;
+  transition: width 0.06s linear;
+}
+
+.audio-dev-clip-mark {
+  position: absolute;
+  right: 10%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: #ff4444;
+  opacity: 0.6;
+}
+
+.audio-dev-row { margin-bottom: 8px; }
+
+.audio-dev-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 8px 0 6px;
+}
+
+.audio-dev-select {
+  width: 100%;
+  background: #2a2a2a;
+  color: #f1f1f1;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+}
+
+.audio-dev-select:focus { border-color: #cc0000; }
+
+.audio-dev-reset-btn {
+  width: 100%;
+  margin-top: 8px;
+  background: #2a2a2a;
+  color: #aaa;
+  border: 1px solid #3a3a3a;
+}
+
+.audio-dev-reset-btn:hover {
+  background: #3a3a3a;
+  color: #f1f1f1;
 }
 
 /* Mute button */
@@ -716,6 +912,69 @@ select:focus, input[type="text"]:focus {
   background: #cc0000;
   border-color: #cc0000;
   color: white;
+}
+
+/* Music capture */
+.music-capture-row {
+  margin-top: 6px;
+}
+
+.btn-music-capture {
+  width: 100%;
+  background: #2a2a2a;
+  border: 1px dashed #444;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 11px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.btn-music-capture:hover {
+  background: #333;
+  color: #f1f1f1;
+  border-color: #666;
+}
+
+.btn-stop-music {
+  width: 28px;
+  height: 28px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.btn-stop-music:hover {
+  background: #cc0000;
+  color: white;
+}
+
+.music-tab-select {
+  flex: 1;
+  background: #1e1e1e;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 5px 6px;
+  font-size: 11px;
+}
+
+.music-picker-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.music-picker-row .btn {
+  padding: 5px 10px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* Mirror button */
@@ -1140,6 +1399,15 @@ select:focus, input[type="text"]:focus {
   color: white;
   border-color: #cc0000;
 }
+
+
+/* Screen capture button */
+.screen-capture-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.btn-screen-capture { flex: 1; background: #2a2a2a; color: #aaa; border: 1px solid #3a3a3a; }
+.btn-screen-capture:hover:not(:disabled) { background: #3a3a3a; color: #f1f1f1; border-color: #4a4a4a; }
+.btn-screen-capture.active { background: #1a3a1a; color: #4caf50; border-color: #2d5a2d; }
+.btn-stop-capture { background: #3f3f3f; color: #ff4444; border: 1px solid #5a2d2d; }
+.btn-stop-capture:hover:not(:disabled) { background: #4a3030; }
 
 /* ====== QUEUE TAB ====== */
 

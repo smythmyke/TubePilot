@@ -109,6 +109,8 @@
   color: #fff;
 }
 
+.tp-panel-title span { color: #cc0000; }
+
 .tp-panel-subtitle {
   font-size: 11px;
   color: #aaa;
@@ -1264,4 +1266,40 @@ a.tp-history-card-title:hover {
 .tp-category-select:focus-visible {
   outline: 2px solid #cc0000;
   outline-offset: 2px;
+}
+
+/* Reactions Studio Banner */
+.tp-reactions-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 20px;
+  background: linear-gradient(135deg, rgba(204,0,0,0.12), rgba(230,57,70,0.08));
+  border: none;
+  border-bottom: 1px solid #3f3f3f;
+  color: #ddd;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'Roboto', sans-serif;
+  transition: background 0.15s;
+}
+.tp-reactions-banner:hover {
+  background: linear-gradient(135deg, rgba(204,0,0,0.2), rgba(230,57,70,0.14));
+  color: #fff;
+}
+.tp-rb-badge {
+  font-size: 9px;
+  background: #cc0000;
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.tp-rb-arrow {
+  margin-left: auto;
+  font-size: 16px;
+  opacity: 0.4;
 }

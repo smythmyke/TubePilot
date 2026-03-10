@@ -297,6 +297,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
+    case 'OPEN_REACTIONS':
+      chrome.tabs.create({ url: chrome.runtime.getURL('reactions/reactions.html') });
+      sendResponse({ success: true });
+      break;
+
     // --- Reactions ---
     case RX_MESSAGES.LOAD_VIDEO:
       handleRxSetYouTubeTab(message, sender.tab?.id)
@@ -486,7 +491,7 @@ async function handleGenerateYouTubeMeta(videoDescription, product, channelConte
       if (res.status === 402) throw new Error('Insufficient credits — purchase more to continue');
       if (res.status === 429) throw new Error('Rate limit exceeded — wait a moment');
       if (res.status === 503) throw new Error('AI service unavailable');
-      throw new Error(`Failed to generate metadata (${res.status}). Please try again.`);
+      throw new Error(`Failed to generate metadata (${res.status}): ${errBody.slice(0, 200) || 'no details'}`);
     }
 
     const data = await res.json();
@@ -894,18 +899,19 @@ function broadcastRxState(extra = {}) {
 
 async function handleRxSetYouTubeTab(message, senderTabId) {
   const youTubeTabId = message.youTubeTabId;
-  if (!youTubeTabId) throw new Error('No youTubeTabId provided');
 
-  rxYouTubeTabId = youTubeTabId;
+  rxYouTubeTabId = youTubeTabId || null;
   rxReactionsTabId = senderTabId;
   rxState = RX_STATES.READY;
   broadcastRxState();
 
-  // Activate content script polling in the YouTube tab
-  try {
-    await chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_ACTIVATE });
-  } catch {
-    // Content script may not be ready yet — re-injects on page load
+  // Activate content script polling in the YouTube tab (skip for screen capture)
+  if (rxYouTubeTabId) {
+    try {
+      await chrome.tabs.sendMessage(rxYouTubeTabId, { type: RX_MESSAGES.YT_ACTIVATE });
+    } catch {
+      // Content script may not be ready yet — re-injects on page load
+    }
   }
 
   return {};

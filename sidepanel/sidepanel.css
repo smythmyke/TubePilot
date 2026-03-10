@@ -37,8 +37,10 @@ body {
 .sp-title {
   font-size: 15px;
   font-weight: 600;
-  color: #cc0000;
+  color: #fff;
 }
+
+.sp-accent { color: #cc0000; }
 
 /* Tabs */
 .sp-tabs {

@@ -53,6 +53,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const prevBtn = document.getElementById('prev-btn');
   const nextBtn = document.getElementById('next-btn');
 
+  // Screen capture
+  const screenCaptureBtn = document.getElementById('screen-capture-btn');
+  const stopScreenCaptureBtn = document.getElementById('stop-screen-capture-btn');
+  const tabVolumeLabel = document.getElementById('tab-volume-label');
+
   // Camera tab
   const camPreview = document.getElementById('cam-preview');
   const camPlaceholder = document.getElementById('cam-placeholder');
@@ -66,6 +71,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const micVolumeSlider = document.getElementById('mic-volume-slider');
   const micVolumeValue = document.getElementById('mic-volume-value');
   const micMuteBtn = document.getElementById('mic-mute-btn');
+
+  // Music
+  const musicVolumeSlider = document.getElementById('music-volume-slider');
+  const musicVolumeValue = document.getElementById('music-volume-value');
+  const musicMuteBtn = document.getElementById('music-mute-btn');
+  const musicCaptureBtn = document.getElementById('music-capture-btn');
+  const stopMusicBtn = document.getElementById('stop-music-btn');
+  const musicRow = document.getElementById('music-row');
+  const musicCaptureRow = document.getElementById('music-capture-row');
 
   // Sidebar tabs
   const sidebarTabs = document.querySelectorAll('.sidebar-tab');
@@ -125,6 +139,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   let pipDragOffsetY = 0;
   let pipHovered = false;
 
+  // Video panel position / size (null = full canvas default)
+  let vidX = null;
+  let vidY = null;
+  let vidSizePercent = 100;
+
+  // Video panel interaction state
+  let vidSelected = false;
+  let vidDragging = false;
+  let vidResizing = false;
+  let vidResizeCorner = null;
+  let vidDragOffsetX = 0;
+  let vidDragOffsetY = 0;
+  let vidHovered = false;
+
+  // Z-order: which panel draws on top
+  let topPanel = 'webcam';
+
   // Streams
   let tabStream = null;
   let camStream = null;
@@ -136,8 +167,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   let micGain = null;
   let micSourceNode = null;
   let audioDest = null;
+  let audioCompressor = null;
+  let micAnalyser = null;
+  let micMeterRaf = null;
   let micMuted = false;
   let savedMicGain = 1;
+
+  // Music (background audio from another tab)
+  let musicStream = null;
+  let musicSourceNode = null;
+  let musicGain = null;
+  let musicTabId = null;
+  let musicMuted = false;
+  let savedMusicGain = 1;
+
+  // Mic preview (lightweight — meter only, before recording graph exists)
+  let micPreviewStream = null;
+  let micPreviewCtx = null;
+  let micPreviewAnalyser = null;
 
   // Camera mirror
   let camMirrored = false;
@@ -216,6 +263,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Feather LUT (precomputed)
   let featherLUT = new Uint8Array(256);
 
+  // Mask post-processing
+  let bgMaskDilation = 10;
+  let bgMaskSmoothing = 20;
+
+  // Audio dev tuning (session-only)
+  let audioDevPanelOpen = false;
+  let audioDevBypassCompressor = false;
+  let audioDevBitrate = 128000;
+  let audioDevCompressor = { threshold: -12, knee: 10, ratio: 2, attack: 0.005, release: 0.2 };
+  let audioDevPeakAnalyser = null;
+  let audioDevPeakRaf = null;
+
   // Queue
   let videoQueue = [];
   let nowPlaying = null;
@@ -227,7 +286,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   let _writingQueue = false;
   async function saveQueueState() {
     _writingQueue = true;
-    await QueueStorage.save({ nowPlaying, queue: videoQueue, playHistory });
+    const persistedNowPlaying = (nowPlaying && nowPlaying.videoId === '__screen_capture__') ? null : nowPlaying;
+    await QueueStorage.save({ nowPlaying: persistedNowPlaying, queue: videoQueue, playHistory });
     setTimeout(() => { _writingQueue = false; }, 50);
   }
   QueueStorage.onChange((data) => {
@@ -245,10 +305,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activePreset = RX_PRESETS.PIP_BR;
   let recordingView = RX_VIEWS.FINAL;
   let webcamOnlyMode = false;
+  let audioOnlyMode = false;
+  let screenCaptureMode = false;
+  let sideBySideSwapped = false;
+  let sbsSplitPercent = 50;
 
-  // Sync link
-  let recordingStartVideoId = null;
-  let recordingStartVideoTime = 0;
+  // Document PiP popout
+  let pipWindow = null;
+  let pipMiniCanvas = null;
+  let pipMiniCtx = null;
+  let pipMiniTimerEl = null;
+  let pipMiniDotEl = null;
+  let pipMiniStatusEl = null;
+  const popoutBtn = document.getElementById('popout-btn');
+
 
   // ============================================================
   // (a) Video loading & Queue system
@@ -352,6 +422,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function playVideo(videoObj) {
+    // If in screen capture mode, stop it first before switching to YouTube
+    if (screenCaptureMode) {
+      stopCurrentCapture();
+      updateScreenCaptureUI(false);
+    }
+
     // Push current to history
     if (nowPlaying) {
       playHistory.push(nowPlaying);
@@ -374,7 +450,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveQueueState();
 
     if (isFirstVideoLoad) {
-      // Full flow: open embed tab, user picks it via getDisplayMedia (one-time)
       setSearchStatus('Loading video...', 'loading');
       try {
         // 1. Open the YouTube video in a new tab (content script strips UI)
@@ -383,17 +458,41 @@ document.addEventListener('DOMContentLoaded', async () => {
           active: true
         });
 
-        // 2. Small delay for page to start loading
+        // 2. Show instruction in placeholder + wait for page to load
+        previewPlaceholder.innerHTML = '<div style="text-align:center;padding:20px;color:#aaa;line-height:1.6">'
+          + '<div style="font-size:24px;margin-bottom:8px">Select the YouTube tab</div>'
+          + '<div style="font-size:14px;color:#777">A share dialog will appear.<br>Pick the YouTube tab and click <b style="color:#fff">Share</b>.</div>'
+          + '<div style="font-size:12px;color:#555;margin-top:12px">This is a one-time step per session.</div>'
+          + '</div>';
+        previewPlaceholder.classList.remove('hidden');
         await new Promise(r => setTimeout(r, 1500));
 
-        // 3. Call getDisplayMedia — user picks the YouTube embed tab
+        // 3. Bring focus back to reactions page so picker appears here
+        const reactionsTab = await chrome.tabs.getCurrent();
+        if (reactionsTab) await chrome.tabs.update(reactionsTab.id, { active: true });
+        await new Promise(r => setTimeout(r, 200));
+
+        // 4. getDisplayMedia — user picks the YouTube tab (only tabs shown)
         tabStream = await navigator.mediaDevices.getDisplayMedia({
           video: { displaySurface: 'browser' },
-          audio: true,
-          preferCurrentTab: false
+          audio: {
+            autoGainControl: false,
+            echoCancellation: false,
+            noiseSuppression: false
+          },
+          preferCurrentTab: false,
+          selfBrowserSurface: 'exclude',
+          monitorTypeSurfaces: 'exclude'
         });
 
-        // 4. Tell SW which tab we captured
+        // [AUDIO DEBUG] Log what getDisplayMedia returned
+        const _dbgVTracks = tabStream.getVideoTracks();
+        const _dbgATracks = tabStream.getAudioTracks();
+        console.log('[AUDIO DEBUG] getDisplayMedia (YT tab) resolved — video tracks:', _dbgVTracks.length, ', audio tracks:', _dbgATracks.length);
+        _dbgATracks.forEach((t, i) => console.log(`[AUDIO DEBUG]   audio track[${i}]: label="${t.label}" readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
+        if (_dbgATracks.length === 0) console.warn('[AUDIO DEBUG] ⚠ NO AUDIO TRACKS from getDisplayMedia — user likely did not check "Share tab audio"');
+
+        // 5. Tell SW which tab we captured
         const response = await chrome.runtime.sendMessage({
           type: RX_MESSAGES.LOAD_VIDEO,
           youTubeTabId: ytTab.id,
@@ -401,7 +500,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         if (!response?.success) throw new Error(response?.error || 'Failed to register YouTube tab');
 
-        // 5. Set up video element
+        // 6. Set up video element
         tabVideo.srcObject = tabStream;
         await tabVideo.play();
 
@@ -417,15 +516,16 @@ document.addEventListener('DOMContentLoaded', async () => {
           recordingCanvas.height = h;
         }
 
-        // 6. Set up audio mixing
+        // 7. Set up audio mixing
         setupAudioMixing();
 
-        // 7. Start webcam for canvas compositing (PiP / Camera view)
-        if (!camStream) {
+        // 8. Start webcam for canvas compositing (PiP / Camera view)
+        if (!audioOnlyMode && !camStream) {
           await startCamStream();
         }
 
         // Hide placeholder, start render loop
+        previewPlaceholder.innerHTML = '<span>Load a video to start</span>';
         previewPlaceholder.classList.add('hidden');
         startRenderLoop();
 
@@ -433,18 +533,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         playPauseBtn.disabled = false;
         seekInput.disabled = false;
         recordBtn.disabled = false;
+        popoutBtn.disabled = false;
 
-        // 8. Detect stream end (tab closed or user stops sharing)
+        // 9. Detect stream end (tab closed or user stops sharing)
         tabStream.getVideoTracks()[0]?.addEventListener('ended', handleStreamEnded);
 
         isFirstVideoLoad = false;
         setSearchStatus('');
       } catch (err) {
         console.error('playVideo first-load error:', err.message);
-        setSearchStatus('Error: ' + err.message, 'error');
+        previewPlaceholder.innerHTML = '<span>Load a video to start</span>';
+        previewPlaceholder.classList.remove('hidden');
+        // Clean up partial YouTube tab if it was created
+        try {
+          const stateResp = await chrome.runtime.sendMessage({ type: RX_MESSAGES.GET_STATE });
+          if (stateResp?.youTubeTabId) {
+            chrome.tabs.remove(stateResp.youTubeTabId).catch(() => {});
+          }
+        } catch {}
+        await chrome.runtime.sendMessage({ type: RX_MESSAGES.CLEANUP }).catch(() => {});
+        // Stop any partial stream
+        if (tabStream) {
+          tabStream.getTracks().forEach(t => t.stop());
+          tabStream = null;
+        }
+        // Reset state so next click starts fresh
+        isFirstVideoLoad = true;
         nowPlaying = playHistory.length > 0 ? playHistory.pop() : null;
         renderNowPlaying();
         updateNavButtons();
+        saveQueueState();
+        setSearchStatus(err.message.includes('user') || err.message.includes('cancel')
+          ? 'Capture cancelled — click a video to try again'
+          : 'Error: ' + err.message, 'error');
       }
     } else {
       // Navigate the captured YouTube tab to new video (stream persists)
@@ -482,11 +603,214 @@ document.addEventListener('DOMContentLoaded', async () => {
     playPauseBtn.disabled = true;
     seekInput.disabled = true;
     recordBtn.disabled = true;
+    // Stop background music
+    stopMusicCapture();
     // Stop recording if active
     if (currentState === RX_STATES.RECORDING || currentState === RX_STATES.PAUSED) {
       stopBtn.click();
     }
   }
+
+  // --- Screen capture mode ---
+
+  async function startScreenCapture() {
+    // If already capturing YouTube, stop that first
+    if (tabStream && !screenCaptureMode) {
+      stopCurrentCapture();
+    }
+
+    // Show instructions in placeholder
+    previewPlaceholder.innerHTML = '<div style="text-align:center;padding:20px;color:#aaa;line-height:1.6">'
+      + '<div style="font-size:24px;margin-bottom:8px">Select content to capture</div>'
+      + '<div style="font-size:14px;color:#777">Choose a tab, window, or screen to capture.</div>'
+      + '</div>';
+    previewPlaceholder.classList.remove('hidden');
+
+    try {
+      // getDisplayMedia with no surface constraints — user picks anything
+      tabStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      });
+
+      // [AUDIO DEBUG] Log what screen capture getDisplayMedia returned
+      const _dbgScVTracks = tabStream.getVideoTracks();
+      const _dbgScATracks = tabStream.getAudioTracks();
+      console.log('[AUDIO DEBUG] getDisplayMedia (screen capture) resolved — video tracks:', _dbgScVTracks.length, ', audio tracks:', _dbgScATracks.length);
+      _dbgScATracks.forEach((t, i) => console.log(`[AUDIO DEBUG]   audio track[${i}]: label="${t.label}" readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
+      if (_dbgScATracks.length === 0) console.warn('[AUDIO DEBUG] ⚠ NO AUDIO TRACKS from screen capture getDisplayMedia');
+
+      screenCaptureMode = true;
+
+      // Push current nowPlaying to history before replacing
+      if (nowPlaying) {
+        playHistory.push(nowPlaying);
+      }
+      nowPlaying = { videoId: '__screen_capture__', title: 'Screen Capture', channelTitle: 'Live capture', thumbnail: '' };
+
+      // Tell SW we're in screen capture mode (null youTubeTabId)
+      await chrome.runtime.sendMessage({
+        type: RX_MESSAGES.LOAD_VIDEO,
+        youTubeTabId: null,
+        videoId: '__screen_capture__'
+      }).catch(() => {});
+
+      // Set up video element
+      tabVideo.srcObject = tabStream;
+      await tabVideo.play();
+
+      // Set canvas dimensions from video
+      const vTrack = tabStream.getVideoTracks()[0];
+      if (vTrack) {
+        const settings = vTrack.getSettings();
+        const w = settings.width || RX_DEFAULTS.canvasWidth;
+        const h = settings.height || RX_DEFAULTS.canvasHeight;
+        previewCanvas.width = w;
+        previewCanvas.height = h;
+        recordingCanvas.width = w;
+        recordingCanvas.height = h;
+      }
+
+      // Set up audio mixing
+      setupAudioMixing();
+
+      // Start webcam
+      if (!audioOnlyMode && !camStream) {
+        await startCamStream();
+      }
+
+      // Hide placeholder, start render loop
+      previewPlaceholder.innerHTML = '<span>Load a video to start</span>';
+      previewPlaceholder.classList.add('hidden');
+      startRenderLoop();
+
+      // Enable record, disable player controls
+      recordBtn.disabled = false;
+      popoutBtn.disabled = false;
+      updateScreenCaptureUI(true);
+
+      renderNowPlaying();
+      renderQueue();
+      updateNavButtons();
+      saveQueueState();
+
+      // Detect stream end (user stops sharing)
+      tabStream.getVideoTracks()[0]?.addEventListener('ended', handleScreenCaptureEnded);
+
+      isFirstVideoLoad = false;
+    } catch (err) {
+      console.error('startScreenCapture error:', err.message);
+      previewPlaceholder.innerHTML = '<span>Load a video to start</span>';
+      if (!tabStream) previewPlaceholder.classList.remove('hidden');
+
+      // Restore previous nowPlaying
+      if (screenCaptureMode) {
+        nowPlaying = playHistory.length > 0 ? playHistory.pop() : null;
+        screenCaptureMode = false;
+      }
+
+      // Clean up partial stream
+      if (tabStream) {
+        tabStream.getTracks().forEach(t => t.stop());
+        tabStream = null;
+      }
+
+      updateScreenCaptureUI(false);
+      renderNowPlaying();
+      updateNavButtons();
+      saveQueueState();
+
+      const msg = err.message.includes('user') || err.message.includes('cancel')
+        ? 'Capture cancelled'
+        : 'Error: ' + err.message;
+      setSearchStatus(msg, 'error');
+    }
+  }
+
+  function stopCurrentCapture() {
+    // Stop recording if active
+    if (currentState === RX_STATES.RECORDING || currentState === RX_STATES.PAUSED) {
+      stopBtn.click();
+    }
+
+    // Stop all tab stream tracks
+    if (tabStream) {
+      tabStream.getTracks().forEach(t => t.stop());
+      tabStream = null;
+    }
+
+    // Stop background music
+    stopMusicCapture();
+
+    // If we were in YouTube mode, clean up the YouTube tab
+    if (!screenCaptureMode) {
+      chrome.runtime.sendMessage({ type: RX_MESSAGES.CLEANUP }).catch(() => {});
+    }
+
+    isFirstVideoLoad = true;
+    screenCaptureMode = false;
+  }
+
+  function handleScreenCaptureEnded() {
+    // Stop recording if active
+    if (currentState === RX_STATES.RECORDING || currentState === RX_STATES.PAUSED) {
+      stopBtn.click();
+    }
+
+    // Stop background music
+    stopMusicCapture();
+
+    tabStream = null;
+    isFirstVideoLoad = true;
+    screenCaptureMode = false;
+    nowPlaying = null;
+
+    previewPlaceholder.classList.remove('hidden');
+    playPauseBtn.disabled = true;
+    seekInput.disabled = true;
+    recordBtn.disabled = true;
+
+    updateScreenCaptureUI(false);
+    renderNowPlaying();
+    updateNavButtons();
+    saveQueueState();
+  }
+
+  function updateScreenCaptureUI(active) {
+    screenCaptureBtn.classList.toggle('active', active);
+    stopScreenCaptureBtn.classList.toggle('hidden', !active);
+
+    // Dim player controls when in screen capture mode
+    const playerControls = document.querySelector('.player-controls');
+    if (playerControls) {
+      if (active) {
+        playerControls.style.opacity = '0.35';
+        playerControls.style.pointerEvents = 'none';
+      } else {
+        playerControls.style.opacity = '';
+        playerControls.style.pointerEvents = '';
+      }
+    }
+
+    // Change volume label
+    if (tabVolumeLabel) {
+      tabVolumeLabel.textContent = active ? 'Audio' : 'YouTube';
+    }
+  }
+
+  screenCaptureBtn.addEventListener('click', () => startScreenCapture());
+  stopScreenCaptureBtn.addEventListener('click', () => {
+    stopCurrentCapture();
+    nowPlaying = null;
+    previewPlaceholder.classList.remove('hidden');
+    playPauseBtn.disabled = true;
+    seekInput.disabled = true;
+    recordBtn.disabled = true;
+    updateScreenCaptureUI(false);
+    renderNowPlaying();
+    updateNavButtons();
+    saveQueueState();
+  });
 
   function playNextInQueue() {
     if (videoQueue.length === 0) return;
@@ -542,13 +866,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     nowPlayingSection.classList.remove('hidden');
-    nowPlayingCard.innerHTML = `
-      <img class="np-thumb" src="${escapeAttr(nowPlaying.thumbnail)}" alt="">
-      <div class="np-info">
-        <div class="np-title" title="${escapeAttr(nowPlaying.title)}">${escapeHtml(nowPlaying.title)}</div>
-        <div class="np-channel">${escapeHtml(nowPlaying.channelTitle)}</div>
-      </div>
-    `;
+    if (nowPlaying.videoId === '__screen_capture__') {
+      nowPlayingCard.innerHTML = `
+        <div class="np-thumb" style="display:flex;align-items:center;justify-content:center;font-size:24px;background:#1a3a1a;color:#4caf50">&#x1F5B5;</div>
+        <div class="np-info">
+          <div class="np-title">Screen Capture</div>
+          <div class="np-channel">Live capture active</div>
+        </div>
+      `;
+    } else {
+      nowPlayingCard.innerHTML = `
+        <img class="np-thumb" src="${escapeAttr(nowPlaying.thumbnail)}" alt="">
+        <div class="np-info">
+          <div class="np-title" title="${escapeAttr(nowPlaying.title)}">${escapeHtml(nowPlaying.title)}</div>
+          <div class="np-channel">${escapeHtml(nowPlaying.channelTitle)}</div>
+        </div>
+      `;
+    }
   }
 
   function renderQueue() {
@@ -688,6 +1022,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (cameras.length > 0) {
       startCamPreview(cameras[0].deviceId);
     }
+    if (mics.length > 0) {
+      startMicPreview(mics[0].deviceId);
+    }
   }
 
   async function startCamPreview(deviceId) {
@@ -708,18 +1045,63 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Lightweight mic preview — drives meter before recording graph exists
+  async function startMicPreview(deviceId) {
+    stopMicPreview();
+
+    const constraints = deviceId
+      ? { audio: { deviceId: { exact: deviceId } } }
+      : { audio: true };
+
+    try {
+      micPreviewStream = await navigator.mediaDevices.getUserMedia(constraints);
+      micPreviewCtx = new AudioContext();
+      const source = micPreviewCtx.createMediaStreamSource(micPreviewStream);
+      micPreviewAnalyser = micPreviewCtx.createAnalyser();
+      micPreviewAnalyser.fftSize = 256;
+      source.connect(micPreviewAnalyser);
+
+      // Drive the mic meter from the preview analyser
+      micAnalyser = micPreviewAnalyser;
+      startMicMeter();
+      console.log('[AUDIO DEBUG] startMicPreview — meter active, device:', deviceId || 'default');
+    } catch (e) {
+      console.warn('[TubePilot RX] Mic preview failed:', e.message);
+    }
+  }
+
+  function stopMicPreview() {
+    if (micPreviewStream) {
+      micPreviewStream.getTracks().forEach(t => t.stop());
+      micPreviewStream = null;
+    }
+    if (micPreviewCtx) {
+      micPreviewCtx.close().catch(() => {});
+      micPreviewCtx = null;
+    }
+    micPreviewAnalyser = null;
+  }
+
   async function startCamStream() {
     if (camStream) {
       camStream.getTracks().forEach(t => t.stop());
       camStream = null;
+      stopMicMeter();
     }
 
-    const constraints = { video: true, audio: true };
+    const constraints = {
+      video: true,
+      audio: {
+        autoGainControl: false,
+        echoCancellation: false,
+        noiseSuppression: false
+      }
+    };
     if (cameraSelect.value) {
       constraints.video = { deviceId: { exact: cameraSelect.value } };
     }
     if (micSelect.value) {
-      constraints.audio = { deviceId: { exact: micSelect.value } };
+      constraints.audio = { ...constraints.audio, deviceId: { exact: micSelect.value } };
     }
 
     try {
@@ -727,16 +1109,33 @@ document.addEventListener('DOMContentLoaded', async () => {
       camVideo.srcObject = camStream;
       await camVideo.play();
 
-      // Add mic to audio mix
-      if (audioCtx && audioDest) {
+      // Tear down mic preview — real audio graph takes over
+      stopMicPreview();
+
+      // Add mic to audio mix (through compressor) + meter
+      console.log('[AUDIO DEBUG] startCamStream — connecting mic audio. audioCtx:', !!audioCtx, ', audioCompressor:', !!audioCompressor, ', audioCtx.state:', audioCtx?.state);
+      if (audioCtx && audioCompressor) {
         const micAudioTracks = camStream.getAudioTracks();
+        console.log('[AUDIO DEBUG]   mic audio tracks from getUserMedia:', micAudioTracks.length);
+        micAudioTracks.forEach((t, i) => console.log(`[AUDIO DEBUG]     mic track[${i}]: label="${t.label}" readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
         if (micAudioTracks.length > 0) {
           micSourceNode = audioCtx.createMediaStreamSource(new MediaStream(micAudioTracks));
           micGain = audioCtx.createGain();
           micGain.gain.value = micMuted ? 0 : parseInt(micVolumeSlider.value) / 100;
           micSourceNode.connect(micGain);
-          micGain.connect(audioDest);
+          micGain.connect(audioCompressor);
+          console.log('[AUDIO DEBUG]   ✓ mic connected to audio graph, gain:', micGain.gain.value, ', muted:', micMuted);
+
+          // Analyser taps raw mic input (before gain) for level meter
+          micAnalyser = audioCtx.createAnalyser();
+          micAnalyser.fftSize = 256;
+          micSourceNode.connect(micAnalyser);
+          startMicMeter();
+        } else {
+          console.warn('[AUDIO DEBUG]   ⚠ NO mic audio tracks from getUserMedia');
         }
+      } else {
+        console.warn('[AUDIO DEBUG]   ⚠ audioCtx or audioCompressor missing — mic audio NOT connected');
       }
     } catch (e) {
       console.warn('[TubePilot RX] Webcam unavailable:', e.message);
@@ -757,15 +1156,77 @@ document.addEventListener('DOMContentLoaded', async () => {
     mirrorBtn.classList.toggle('active', camMirrored);
     // Also mirror the sidebar camera preview via CSS
     camPreview.style.transform = camMirrored ? 'scaleX(-1)' : '';
+    saveStylePrefs();
   });
 
   micSelect.addEventListener('change', async () => {
     if (!micSelect.value) return;
-    // Hot-swap mic if stream is active
+    // Hot-swap mic if recording stream is active
     if (camStream && camStream.getAudioTracks().length > 0) {
       await swapMicDevice(micSelect.value);
+    } else {
+      // Preview only — restart mic preview with new device
+      startMicPreview(micSelect.value);
     }
   });
+
+  // Refresh devices button (mic)
+  const refreshDevicesBtn = document.getElementById('refresh-devices-btn');
+  if (refreshDevicesBtn) {
+    refreshDevicesBtn.addEventListener('click', async () => {
+      console.log('[AUDIO DEBUG] Manual device refresh triggered');
+      await loadDevices();
+    });
+  }
+
+  // Reconnect camera button
+  const refreshCameraBtn = document.getElementById('refresh-camera-btn');
+  if (refreshCameraBtn) {
+    refreshCameraBtn.addEventListener('click', async () => {
+      const deviceId = cameraSelect.value;
+      if (!deviceId) {
+        console.warn('[TubePilot RX] No camera selected to reconnect');
+        await loadDevices();
+        return;
+      }
+      console.log('[TubePilot RX] Reconnecting camera:', deviceId);
+      refreshCameraBtn.disabled = true;
+      refreshCameraBtn.textContent = '...';
+      try {
+        // Re-enumerate in case device list changed
+        await loadDevices();
+        // Restart preview (holds stream open for phone acknowledgement)
+        await startCamPreview(cameraSelect.value || deviceId);
+        // If recording is active, swap into the live stream too
+        if (camStream) {
+          await swapCamDevice(cameraSelect.value || deviceId);
+        }
+        console.log('[TubePilot RX] Camera reconnected successfully');
+      } catch (e) {
+        console.warn('[TubePilot RX] Camera reconnect failed:', e.message);
+      } finally {
+        refreshCameraBtn.disabled = false;
+        refreshCameraBtn.textContent = '\u21BB';
+      }
+    });
+  }
+
+  // Auto-detect device changes (plugging in / removing devices)
+  if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', async () => {
+      console.log('[AUDIO DEBUG] Device change detected — re-enumerating');
+      const prevMic = micSelect.value;
+      const prevCam = cameraSelect.value;
+      await loadDevices();
+      // If previously selected device disappeared, loadDevices will have picked a new default
+      if (prevMic && micSelect.value !== prevMic) {
+        console.log('[AUDIO DEBUG]   Mic device changed:', prevMic, '→', micSelect.value);
+      }
+      if (prevCam && cameraSelect.value !== prevCam) {
+        console.log('[AUDIO DEBUG]   Camera device changed:', prevCam, '→', cameraSelect.value);
+      }
+    });
+  }
 
   async function swapCamDevice(deviceId) {
     try {
@@ -795,7 +1256,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({
         video: false,
-        audio: { deviceId: { exact: deviceId } }
+        audio: {
+          deviceId: { exact: deviceId },
+          autoGainControl: false,
+          echoCancellation: false,
+          noiseSuppression: false
+        }
       });
       const newAudioTrack = newStream.getAudioTracks()[0];
       if (!newAudioTrack) return;
@@ -811,11 +1277,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       camStream.removeTrack(oldTrack);
       camStream.addTrack(newAudioTrack);
 
-      // Create new source and reconnect through same gain node
+      // Create new source and reconnect through same gain node + analyser
       if (audioCtx && micGain) {
         micSourceNode = audioCtx.createMediaStreamSource(new MediaStream([newAudioTrack]));
         micSourceNode.connect(micGain);
-        // micGain is already connected to audioDest — mute state is preserved
+        // micGain is already connected to audioCompressor — mute state is preserved
+
+        // Reconnect analyser to new source
+        if (micAnalyser) micAnalyser.disconnect();
+        micAnalyser = audioCtx.createAnalyser();
+        micAnalyser.fftSize = 256;
+        micSourceNode.connect(micAnalyser);
+        startMicMeter();
       }
 
       // Stop old track
@@ -976,6 +1449,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  function applyMaskPostProcessing(tempCtx, w, h) {
+    // Dilation: redraw mask shifted in 8 directions (morphological approximation via drawImage)
+    if (bgMaskDilation > 0) {
+      const d = bgMaskDilation;
+      const src = tempCtx.canvas;
+      tempCtx.globalCompositeOperation = 'lighter';
+      const offsets = [[-d,0],[d,0],[0,-d],[0,d],[-d,-d],[d,-d],[-d,d],[d,d]];
+      for (const [ox, oy] of offsets) {
+        tempCtx.drawImage(src, ox, oy);
+      }
+      tempCtx.globalCompositeOperation = 'source-over';
+    }
+    // Smoothing: apply CSS filter blur to smooth mask edges
+    if (bgMaskSmoothing > 0) {
+      tempCtx.filter = `blur(${bgMaskSmoothing}px)`;
+      tempCtx.globalCompositeOperation = 'copy';
+      tempCtx.drawImage(tempCtx.canvas, 0, 0);
+      tempCtx.globalCompositeOperation = 'source-over';
+      tempCtx.filter = 'none';
+    }
+  }
+
   function drawPipWithBgRemoval(ctx, pipRect) {
     ensureBgCanvases(pipRect.w, pipRect.h);
 
@@ -1017,6 +1512,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 3. Upscale mask to PiP size (bilinear interpolation = free edge smoothing)
     tempCtx.clearRect(0, 0, pipRect.w, pipRect.h);
     tempCtx.drawImage(bgMaskCanvas, 0, 0, pipRect.w, pipRect.h);
+    applyMaskPostProcessing(tempCtx, pipRect.w, pipRect.h);
 
     if (bgRemovalMode === 'blur') {
       // Blur mode: blurred bg + sharp person
@@ -1050,6 +1546,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       maskCtx.putImageData(invImgData, 0, 0);
       tempCtx.clearRect(0, 0, pipRect.w, pipRect.h);
       tempCtx.drawImage(bgMaskCanvas, 0, 0, pipRect.w, pipRect.h);
+      applyMaskPostProcessing(tempCtx, pipRect.w, pipRect.h);
 
       blurCtx.globalCompositeOperation = 'destination-in';
       blurCtx.drawImage(bgTempCanvas, 0, 0);
@@ -1060,6 +1557,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       maskCtx.putImageData(imgData, 0, 0);
       tempCtx.clearRect(0, 0, pipRect.w, pipRect.h);
       tempCtx.drawImage(bgMaskCanvas, 0, 0, pipRect.w, pipRect.h);
+      applyMaskPostProcessing(tempCtx, pipRect.w, pipRect.h);
 
       camCtx.globalCompositeOperation = 'destination-in';
       camCtx.drawImage(bgTempCanvas, 0, 0);
@@ -1099,8 +1597,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Run segmentation once per frame (shared by both canvases)
       runSegmentation(timestamp);
 
-      drawCanvas(recordingCtx, recordingCanvas, recordingView, false);
-      drawCanvas(previewCtx, previewCanvas, currentView, true);
+      const recView = audioOnlyMode ? RX_VIEWS.VIDEO : recordingView;
+      const prevView = audioOnlyMode ? RX_VIEWS.VIDEO : currentView;
+      drawCanvas(recordingCtx, recordingCanvas, recView, false);
+      drawCanvas(previewCtx, previewCanvas, prevView, true);
+
+      // Document PiP mini preview
+      if (pipMiniCtx && pipWindow && !pipWindow.closed) {
+        if (pipMiniCanvas.width !== recordingCanvas.width || pipMiniCanvas.height !== recordingCanvas.height) {
+          pipMiniCanvas.width = recordingCanvas.width;
+          pipMiniCanvas.height = recordingCanvas.height;
+        }
+        pipMiniCtx.drawImage(recordingCanvas, 0, 0, pipMiniCanvas.width, pipMiniCanvas.height);
+      }
+
       animFrameId = requestAnimationFrame(draw);
     }
     animFrameId = requestAnimationFrame(draw);
@@ -1127,14 +1637,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (currentLayout === RX_LAYOUTS.SIDE_BY_SIDE) {
         drawSideBySide(ctx, canvas, isPreviewCanvas);
       } else {
-        if (tabVideo.readyState >= 2) {
-          ctx.drawImage(tabVideo, 0, 0, canvas.width, canvas.height);
+        // Black background (visible when panels are resized smaller than canvas)
+        const vr = calcVidRect(canvas);
+        if (!vr.fullCanvas) {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
-        if (camVideo.srcObject && camVideo.readyState >= 2) {
-          drawPip(ctx, canvas, isPreviewCanvas);
+
+        // Draw panels in z-order (bottom first, top second)
+        const drawVideo = () => drawVideoPanel(ctx, canvas, isPreviewCanvas);
+        const drawCam = () => {
+          if (camVideo.srcObject && camVideo.readyState >= 2) {
+            drawPip(ctx, canvas, isPreviewCanvas);
+          }
+        };
+
+        if (topPanel === 'webcam') {
+          drawVideo();
+          drawCam();
+        } else {
+          drawCam();
+          drawVideo();
         }
       }
     }
+
   }
 
   function drawVideoFill(ctx, video, w, h) {
@@ -1147,6 +1674,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sx = (w - sw) / 2;
     const sy = (h - sh) / 2;
     ctx.drawImage(video, sx, sy, sw, sh);
+  }
+
+  function drawVideoPanel(ctx, canvas, isPreviewCanvas) {
+    if (tabVideo.readyState < 2) return;
+
+    const vr = calcVidRect(canvas);
+
+    if (vr.fullCanvas) {
+      // Full canvas — direct drawImage, no clipping overhead
+      ctx.drawImage(tabVideo, 0, 0, canvas.width, canvas.height);
+    } else {
+      // Resized panel — clip to rect, cover-fit video
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(vr.x, vr.y, vr.w, vr.h);
+      ctx.clip();
+
+      const vw = tabVideo.videoWidth || vr.w;
+      const vh = tabVideo.videoHeight || vr.h;
+      const scale = Math.max(vr.w / vw, vr.h / vh);
+      const sw = vw * scale;
+      const sh = vh * scale;
+      const sx = vr.x + (vr.w - sw) / 2;
+      const sy = vr.y + (vr.h - sh) / 2;
+      ctx.drawImage(tabVideo, sx, sy, sw, sh);
+      ctx.restore();
+
+      // Draw resize handles on preview when selected or hovered
+      if (isPreviewCanvas && (vidSelected || vidHovered)) {
+        drawVidResizeHandles(ctx, vr);
+      }
+    }
+  }
+
+  function drawVidResizeHandles(ctx, vidRect) {
+    const hs = RX_DEFAULTS.resizeHandleSize;
+    const corners = [
+      { x: vidRect.x, y: vidRect.y },
+      { x: vidRect.x + vidRect.w, y: vidRect.y },
+      { x: vidRect.x, y: vidRect.y + vidRect.h },
+      { x: vidRect.x + vidRect.w, y: vidRect.y + vidRect.h }
+    ];
+    corners.forEach(c => {
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, hs / 2, 0, Math.PI * 2);
+      ctx.fillStyle = vidSelected ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)';
+      ctx.fill();
+      ctx.strokeStyle = '#3366ff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
   }
 
   function drawPip(ctx, canvas, isPreviewCanvas) {
@@ -1195,57 +1773,62 @@ document.addEventListener('DOMContentLoaded', async () => {
   function drawSideBySide(ctx, canvas, isPreviewCanvas) {
     const w = canvas.width;
     const h = canvas.height;
-    const halfW = Math.floor(w / 2);
+    const videoW = Math.floor(w * sbsSplitPercent / 100);
+    const camW = w - videoW;
 
-    // Left half — video (cover-fit)
+    // Determine which side gets video vs cam
+    const videoX = sideBySideSwapped ? camW : 0;
+    const camX = sideBySideSwapped ? 0 : videoW;
+
+    // Video portion (cover-fit)
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, 0, halfW, h);
+    ctx.rect(videoX, 0, videoW, h);
     ctx.clip();
     if (tabVideo.readyState >= 2) {
-      const vw = tabVideo.videoWidth || halfW;
+      const vw = tabVideo.videoWidth || videoW;
       const vh = tabVideo.videoHeight || h;
-      const scale = Math.max(halfW / vw, h / vh);
+      const scale = Math.max(videoW / vw, h / vh);
       const sw = vw * scale;
       const sh = vh * scale;
-      const sx = (halfW - sw) / 2;
+      const sx = videoX + (videoW - sw) / 2;
       const sy = (h - sh) / 2;
       ctx.drawImage(tabVideo, sx, sy, sw, sh);
     } else {
       ctx.fillStyle = '#111';
-      ctx.fillRect(0, 0, halfW, h);
+      ctx.fillRect(videoX, 0, videoW, h);
     }
     ctx.restore();
 
-    // Right half — webcam (cover-fit)
+    // Cam portion (cover-fit)
     ctx.save();
     ctx.beginPath();
-    ctx.rect(halfW, 0, w - halfW, h);
+    ctx.rect(camX, 0, camW, h);
     ctx.clip();
     if (camVideo.srcObject && camVideo.readyState >= 2) {
       if (bgRemovalEnabled && currentMaskData) {
-        drawSideBySideWebcamBgRemoval(ctx, halfW, 0, w - halfW, h);
+        drawSideBySideWebcamBgRemoval(ctx, camX, 0, camW, h);
       } else {
-        const vw = camVideo.videoWidth || (w - halfW);
+        const vw = camVideo.videoWidth || camW;
         const vh = camVideo.videoHeight || h;
-        const scale = Math.max((w - halfW) / vw, h / vh);
+        const scale = Math.max(camW / vw, h / vh);
         const sw = vw * scale;
         const sh = vh * scale;
         if (camMirrored) {
-          ctx.translate(halfW + (w - halfW), 0);
+          ctx.translate(camX + camW, 0);
           ctx.scale(-1, 1);
-          const sx = ((w - halfW) - sw) / 2;
+          const sx = (camW - sw) / 2;
           const sy = (h - sh) / 2;
           ctx.drawImage(camVideo, sx, sy, sw, sh);
         } else {
-          const sx = halfW + ((w - halfW) - sw) / 2;
+          const sx = camX + (camW - sw) / 2;
           const sy = (h - sh) / 2;
           ctx.drawImage(camVideo, sx, sy, sw, sh);
         }
       }
     } else {
       ctx.fillStyle = '#111';
-      ctx.fillRect(halfW, 0, w - halfW, h);
+      ctx.fillRect(camX, 0, camW, h);
     }
     ctx.restore();
 
@@ -1253,8 +1836,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(halfW, 0);
-    ctx.lineTo(halfW, h);
+    const dividerX = sideBySideSwapped ? camW : videoW;
+    ctx.moveTo(dividerX, 0);
+    ctx.lineTo(dividerX, h);
     ctx.stroke();
   }
 
@@ -1297,6 +1881,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     maskCtx.putImageData(imgData, 0, 0);
     tempCtx.clearRect(0, 0, rw, rh);
     tempCtx.drawImage(bgMaskCanvas, 0, 0, rw, rh);
+    applyMaskPostProcessing(tempCtx, rw, rh);
 
     if (bgRemovalMode === 'blur') {
       const blurCtx = bgBlurCanvas.getContext('2d');
@@ -1326,6 +1911,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       maskCtx.putImageData(invImgData, 0, 0);
       tempCtx.clearRect(0, 0, rw, rh);
       tempCtx.drawImage(bgMaskCanvas, 0, 0, rw, rh);
+      applyMaskPostProcessing(tempCtx, rw, rh);
 
       blurCtx.globalCompositeOperation = 'destination-in';
       blurCtx.drawImage(bgTempCanvas, 0, 0);
@@ -1335,6 +1921,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       maskCtx.putImageData(imgData, 0, 0);
       tempCtx.clearRect(0, 0, rw, rh);
       tempCtx.drawImage(bgMaskCanvas, 0, 0, rw, rh);
+      applyMaskPostProcessing(tempCtx, rw, rh);
 
       camCtx.globalCompositeOperation = 'destination-in';
       camCtx.drawImage(bgTempCanvas, 0, 0);
@@ -1421,6 +2008,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     return { x, y, w: pipW, h: pipH };
   }
 
+  function calcVidRect(canvas) {
+    // Full canvas mode (default)
+    if (vidSizePercent >= 100 && vidX === null && vidY === null) {
+      return { x: 0, y: 0, w: canvas.width, h: canvas.height, fullCanvas: true };
+    }
+
+    const pct = Math.min(vidSizePercent, 100);
+    const vidW = Math.round(canvas.width * (pct / 100));
+    const vidH = Math.round(vidW * (9 / 16)); // always 16:9
+
+    // Default position: centered
+    if (vidX === null || vidY === null) {
+      vidX = (canvas.width - vidW) / 2;
+      vidY = (canvas.height - vidH) / 2;
+    }
+
+    // Clamp to canvas bounds
+    const x = Math.max(0, Math.min(vidX, canvas.width - vidW));
+    const y = Math.max(0, Math.min(vidY, canvas.height - vidH));
+
+    return { x, y, w: vidW, h: vidH, fullCanvas: false };
+  }
+
+  function resetVidToFullCanvas() {
+    vidX = null;
+    vidY = null;
+    vidSizePercent = 100;
+    vidSelected = false;
+    vidHovered = false;
+    vidDragging = false;
+    vidResizing = false;
+    vidResizeCorner = null;
+    topPanel = 'webcam';
+  }
+
   function snapPipToCorner(corner) {
     const margin = 20;
     const pipW = Math.round(previewCanvas.width * (pipSizePercent / 100));
@@ -1485,6 +2107,75 @@ document.addEventListener('DOMContentLoaded', async () => {
     return null;
   }
 
+  function hitTestVid(cx, cy, canvas) {
+    const vr = calcVidRect(canvas);
+    if (vr.fullCanvas) return false; // not interactive when full canvas
+    return cx >= vr.x && cx <= vr.x + vr.w && cy >= vr.y && cy <= vr.y + vr.h;
+  }
+
+  function hitTestVidResizeHandle(cx, cy, canvas) {
+    if (!vidSelected) return null;
+    const vr = calcVidRect(canvas);
+    if (vr.fullCanvas) return null;
+    const hs = RX_DEFAULTS.resizeHandleSize;
+    const corners = [
+      { name: 'tl', x: vr.x, y: vr.y },
+      { name: 'tr', x: vr.x + vr.w, y: vr.y },
+      { name: 'bl', x: vr.x, y: vr.y + vr.h },
+      { name: 'br', x: vr.x + vr.w, y: vr.y + vr.h }
+    ];
+    for (const c of corners) {
+      const dx = cx - c.x;
+      const dy = cy - c.y;
+      if (dx * dx + dy * dy <= (hs / 2 + 4) * (hs / 2 + 4)) return c.name;
+    }
+    return null;
+  }
+
+  function resizeVidFromCorner(mx, my, canvas) {
+    const vr = calcVidRect(canvas);
+    const minPct = RX_DEFAULTS.vidMinSize;
+    const maxPct = RX_DEFAULTS.vidMaxSize;
+
+    // Anchor is opposite corner
+    let anchorX, anchorY;
+    switch (vidResizeCorner) {
+      case 'tl': anchorX = vr.x + vr.w; anchorY = vr.y + vr.h; break;
+      case 'tr': anchorX = vr.x;         anchorY = vr.y + vr.h; break;
+      case 'bl': anchorX = vr.x + vr.w; anchorY = vr.y;         break;
+      case 'br': anchorX = vr.x;         anchorY = vr.y;         break;
+    }
+
+    // Compute new width from mouse distance to anchor
+    const dx = Math.abs(mx - anchorX);
+    let newPct = (dx / canvas.width) * 100;
+    newPct = Math.max(minPct, Math.min(maxPct, newPct));
+
+    vidSizePercent = Math.round(newPct);
+
+    // Recompute dimensions
+    const newW = Math.round(canvas.width * (vidSizePercent / 100));
+    const newH = Math.round(newW * (9 / 16));
+
+    // Position from anchor
+    if (vidResizeCorner === 'tl' || vidResizeCorner === 'bl') {
+      vidX = anchorX - newW;
+    } else {
+      vidX = anchorX;
+    }
+    if (vidResizeCorner === 'tl' || vidResizeCorner === 'tr') {
+      vidY = anchorY - newH;
+    } else {
+      vidY = anchorY;
+    }
+
+    // Sync video size slider UI
+    const vidSlider = document.getElementById('style-vid-size-slider');
+    const vidValue = document.getElementById('style-vid-size-value');
+    if (vidSlider) vidSlider.value = vidSizePercent;
+    if (vidValue) vidValue.textContent = vidSizePercent + '%';
+  }
+
   // ============================================================
   // (c3) Mouse event system (drag / resize)
   // ============================================================
@@ -1493,75 +2184,200 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (currentView !== RX_VIEWS.FINAL) return;
     if (currentLayout !== RX_LAYOUTS.PIP) return;
     const { x, y } = canvasCoordsFromEvent(e, previewCanvas);
+    const resizeCursors = { tl: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize', br: 'nwse-resize' };
 
-    // Check resize handles first
-    const handle = hitTestResizeHandle(x, y, previewCanvas);
-    if (handle) {
-      pipResizing = true;
-      pipResizeCorner = handle;
-      e.preventDefault();
-      return;
+    // Check resize handles for BOTH panels (top panel first)
+    const topIsWebcam = topPanel === 'webcam';
+
+    // Top panel resize handles
+    if (topIsWebcam) {
+      const pipHandle = hitTestResizeHandle(x, y, previewCanvas);
+      if (pipHandle) {
+        pipResizing = true;
+        pipResizeCorner = pipHandle;
+        e.preventDefault();
+        return;
+      }
+    } else {
+      const vidHandle = hitTestVidResizeHandle(x, y, previewCanvas);
+      if (vidHandle) {
+        vidResizing = true;
+        vidResizeCorner = vidHandle;
+        e.preventDefault();
+        return;
+      }
     }
 
-    // Check PiP body for drag
-    if (hitTestPip(x, y, previewCanvas)) {
-      const pr = calcPipRect(previewCanvas);
-      pipSelected = true;
-      pipDragging = true;
-      pipDragOffsetX = x - pr.x;
-      pipDragOffsetY = y - pr.y;
-      previewCanvas.style.cursor = 'grabbing';
-      e.preventDefault();
-      return;
+    // Bottom panel resize handles
+    if (topIsWebcam) {
+      const vidHandle = hitTestVidResizeHandle(x, y, previewCanvas);
+      if (vidHandle) {
+        vidResizing = true;
+        vidResizeCorner = vidHandle;
+        e.preventDefault();
+        return;
+      }
+    } else {
+      const pipHandle = hitTestResizeHandle(x, y, previewCanvas);
+      if (pipHandle) {
+        pipResizing = true;
+        pipResizeCorner = pipHandle;
+        e.preventDefault();
+        return;
+      }
     }
 
-    // Click outside — deselect
+    // Hit-test panels in z-order (top panel first)
+    const panels = topIsWebcam ? ['pip', 'vid'] : ['vid', 'pip'];
+    for (const panel of panels) {
+      if (panel === 'pip' && hitTestPip(x, y, previewCanvas)) {
+        const pr = calcPipRect(previewCanvas);
+        pipSelected = true;
+        vidSelected = false;
+        pipDragging = true;
+        pipDragOffsetX = x - pr.x;
+        pipDragOffsetY = y - pr.y;
+        topPanel = 'webcam';
+        previewCanvas.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+      if (panel === 'vid' && hitTestVid(x, y, previewCanvas)) {
+        const vr = calcVidRect(previewCanvas);
+        vidSelected = true;
+        pipSelected = false;
+        vidDragging = true;
+        vidDragOffsetX = x - vr.x;
+        vidDragOffsetY = y - vr.y;
+        topPanel = 'video';
+        previewCanvas.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Click outside — deselect both
     pipSelected = false;
     pipHovered = false;
+    vidSelected = false;
+    vidHovered = false;
   });
 
   previewCanvas.addEventListener('mousemove', (e) => {
     if (currentView !== RX_VIEWS.FINAL) return;
     const { x, y } = canvasCoordsFromEvent(e, previewCanvas);
 
+    // Active drag/resize — PiP
     if (pipDragging) {
       pipX = x - pipDragOffsetX;
       pipY = y - pipDragOffsetY;
-      // Clamp
       const pr = calcPipRect(previewCanvas);
       pipX = pr.x;
       pipY = pr.y;
       return;
     }
-
     if (pipResizing) {
       resizePipFromCorner(x, y, previewCanvas);
       return;
     }
 
-    // Hover detection
-    const handle = hitTestResizeHandle(x, y, previewCanvas);
-    if (handle) {
-      pipHovered = true;
-      const cursors = { tl: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize', br: 'nwse-resize' };
-      previewCanvas.style.cursor = cursors[handle];
-    } else if (hitTestPip(x, y, previewCanvas)) {
-      pipHovered = true;
-      previewCanvas.style.cursor = 'grab';
-    } else {
-      pipHovered = false;
-      previewCanvas.style.cursor = 'default';
+    // Active drag/resize — Video
+    if (vidDragging) {
+      vidX = x - vidDragOffsetX;
+      vidY = y - vidDragOffsetY;
+      const vr = calcVidRect(previewCanvas);
+      vidX = vr.x;
+      vidY = vr.y;
+      return;
     }
+    if (vidResizing) {
+      resizeVidFromCorner(x, y, previewCanvas);
+      return;
+    }
+
+    // Hover detection in z-order (top panel first)
+    const resizeCursors = { tl: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize', br: 'nwse-resize' };
+    const topIsWebcam = topPanel === 'webcam';
+
+    // Check top panel first
+    if (topIsWebcam) {
+      const pipHandle = hitTestResizeHandle(x, y, previewCanvas);
+      if (pipHandle) {
+        pipHovered = true;
+        vidHovered = false;
+        previewCanvas.style.cursor = resizeCursors[pipHandle];
+        return;
+      }
+      if (hitTestPip(x, y, previewCanvas)) {
+        pipHovered = true;
+        vidHovered = false;
+        previewCanvas.style.cursor = 'grab';
+        return;
+      }
+    } else {
+      const vidHandle = hitTestVidResizeHandle(x, y, previewCanvas);
+      if (vidHandle) {
+        vidHovered = true;
+        pipHovered = false;
+        previewCanvas.style.cursor = resizeCursors[vidHandle];
+        return;
+      }
+      if (hitTestVid(x, y, previewCanvas)) {
+        vidHovered = true;
+        pipHovered = false;
+        previewCanvas.style.cursor = 'grab';
+        return;
+      }
+    }
+
+    // Check bottom panel
+    if (topIsWebcam) {
+      const vidHandle = hitTestVidResizeHandle(x, y, previewCanvas);
+      if (vidHandle) {
+        vidHovered = true;
+        pipHovered = false;
+        previewCanvas.style.cursor = resizeCursors[vidHandle];
+        return;
+      }
+      if (hitTestVid(x, y, previewCanvas)) {
+        vidHovered = true;
+        pipHovered = false;
+        previewCanvas.style.cursor = 'grab';
+        return;
+      }
+    } else {
+      const pipHandle = hitTestResizeHandle(x, y, previewCanvas);
+      if (pipHandle) {
+        pipHovered = true;
+        vidHovered = false;
+        previewCanvas.style.cursor = resizeCursors[pipHandle];
+        return;
+      }
+      if (hitTestPip(x, y, previewCanvas)) {
+        pipHovered = true;
+        vidHovered = false;
+        previewCanvas.style.cursor = 'grab';
+        return;
+      }
+    }
+
+    // Nothing hit
+    pipHovered = false;
+    vidHovered = false;
+    previewCanvas.style.cursor = 'default';
   });
 
   previewCanvas.addEventListener('mouseup', (e) => {
-    if (pipDragging || pipResizing) {
+    if (pipDragging || pipResizing || vidDragging || vidResizing) {
       clearActivePreset();
     }
     pipDragging = false;
     pipResizing = false;
     pipResizeCorner = null;
-    if (pipHovered) {
+    vidDragging = false;
+    vidResizing = false;
+    vidResizeCorner = null;
+    if (pipHovered || vidHovered) {
       previewCanvas.style.cursor = 'grab';
     } else {
       previewCanvas.style.cursor = 'default';
@@ -1573,6 +2389,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     pipResizing = false;
     pipResizeCorner = null;
     pipHovered = false;
+    vidDragging = false;
+    vidResizing = false;
+    vidResizeCorner = null;
+    vidHovered = false;
     previewCanvas.style.cursor = 'default';
   });
 
@@ -1625,22 +2445,309 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ============================================================
 
   function setupAudioMixing() {
+    console.log('[AUDIO DEBUG] setupAudioMixing() called');
     if (audioCtx) {
+      console.log('[AUDIO DEBUG]   closing previous AudioContext (state was:', audioCtx.state, ')');
       audioCtx.close().catch(() => {});
     }
 
-    audioCtx = new AudioContext();
+    audioCtx = new AudioContext({ sampleRate: 48000 });
+    console.log('[AUDIO DEBUG]   new AudioContext created — state:', audioCtx.state);
+    audioCtx.onstatechange = () => console.log('[AUDIO DEBUG]   AudioContext state changed →', audioCtx.state);
+
     audioDest = audioCtx.createMediaStreamDestination();
+    audioDest.channelCount = 2;
+
+    // Compressor prevents clipping when tab + mic are summed
+    audioCompressor = audioCtx.createDynamicsCompressor();
+    audioCompressor.threshold.value = audioDevCompressor.threshold;
+    audioCompressor.knee.value = audioDevCompressor.knee;
+    audioCompressor.ratio.value = audioDevCompressor.ratio;
+    audioCompressor.attack.value = audioDevCompressor.attack;
+    audioCompressor.release.value = audioDevCompressor.release;
+
+    if (audioDevBypassCompressor) {
+      audioCompressor.threshold.value = 0;
+      audioCompressor.ratio.value = 1;
+    }
+    audioCompressor.connect(audioDest);
+
+    // Peak analyser for clipping detection (dev tools)
+    audioDevPeakAnalyser = audioCtx.createAnalyser();
+    audioDevPeakAnalyser.fftSize = 2048;
+    audioCompressor.connect(audioDevPeakAnalyser);
 
     // Tab audio
     const tabAudioTracks = tabStream?.getAudioTracks();
+    console.log('[AUDIO DEBUG]   tabStream audio tracks available:', tabAudioTracks?.length ?? 'N/A (no tabStream)');
     if (tabAudioTracks && tabAudioTracks.length > 0) {
+      tabAudioTracks.forEach((t, i) => console.log(`[AUDIO DEBUG]     tab audio[${i}]: readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
       const tabSource = audioCtx.createMediaStreamSource(new MediaStream(tabAudioTracks));
       tabGain = audioCtx.createGain();
       tabGain.gain.value = parseInt(tabVolumeSlider.value) / 100;
       tabSource.connect(tabGain);
-      tabGain.connect(audioDest);
+      tabGain.connect(audioCompressor);
+      console.log('[AUDIO DEBUG]   ✓ tab audio connected to graph, gain:', tabGain.gain.value);
+    } else {
+      console.warn('[AUDIO DEBUG]   ⚠ NO tab audio tracks — tab audio will be silent');
     }
+
+    // Reconnect mic if camStream already has audio (e.g. after screen capture rebuilds graph)
+    const existingMicTracks = camStream?.getAudioTracks();
+    if (existingMicTracks && existingMicTracks.length > 0 && audioCompressor) {
+      console.log('[AUDIO DEBUG]   reconnecting existing mic to new graph (' + existingMicTracks.length + ' tracks)');
+      if (micSourceNode) { try { micSourceNode.disconnect(); } catch {} }
+      micSourceNode = audioCtx.createMediaStreamSource(new MediaStream(existingMicTracks));
+      micGain = audioCtx.createGain();
+      micGain.gain.value = micMuted ? 0 : parseInt(micVolumeSlider.value) / 100;
+      micSourceNode.connect(micGain);
+      micGain.connect(audioCompressor);
+
+      // Reconnect analyser for mic meter
+      if (micAnalyser) { try { micAnalyser.disconnect(); } catch {} }
+      micAnalyser = audioCtx.createAnalyser();
+      micAnalyser.fftSize = 256;
+      micSourceNode.connect(micAnalyser);
+      startMicMeter();
+      console.log('[AUDIO DEBUG]   ✓ mic reconnected to new graph, gain:', micGain.gain.value, ', muted:', micMuted);
+    }
+
+    console.log('[AUDIO DEBUG]   audioDest tracks after setup:', audioDest.stream.getAudioTracks().length,
+      ', AudioContext final state:', audioCtx.state);
+
+    // Reconnect music if musicStream has audio
+    if (musicStream && musicStream.getAudioTracks().length > 0) {
+      connectMusicToGraph();
+      console.log('[AUDIO DEBUG]   ✓ music reconnected to new graph');
+    }
+  }
+
+  // --- Background music ---
+
+  function connectMusicToGraph() {
+    if (!musicStream || !audioCtx) return;
+
+    // Disconnect previous
+    if (musicSourceNode) { try { musicSourceNode.disconnect(); } catch {} }
+    if (musicGain) { try { musicGain.disconnect(); } catch {} }
+
+    const audioTracks = musicStream.getAudioTracks();
+    if (audioTracks.length === 0) return;
+
+    musicSourceNode = audioCtx.createMediaStreamSource(new MediaStream(audioTracks));
+    musicGain = audioCtx.createGain();
+    musicGain.gain.value = musicMuted ? 0 : parseInt(musicVolumeSlider.value) / 100;
+
+    musicSourceNode.connect(musicGain);
+    // Route 1: into compressor → audioDest (for recording)
+    musicGain.connect(audioCompressor);
+    // Route 2: to speakers (because source tab is muted)
+    musicGain.connect(audioCtx.destination);
+
+    console.log('[MUSIC] Connected to audio graph, gain:', musicGain.gain.value);
+  }
+
+  function showMusicTabPicker() {
+    return new Promise(async (resolve) => {
+      const tabs = await chrome.tabs.query({});
+      const reactionsTab = await chrome.tabs.getCurrent();
+      const eligible = tabs.filter(t =>
+        t.id !== reactionsTab?.id &&
+        !t.url?.startsWith('chrome://') &&
+        !t.url?.startsWith('chrome-extension://')
+      );
+
+      // Build inline picker
+      const row = document.createElement('div');
+      row.className = 'music-picker-row';
+
+      const select = document.createElement('select');
+      select.className = 'music-tab-select';
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = 'Select a tab...';
+      select.appendChild(defaultOpt);
+
+      eligible.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        const title = (t.title || 'Tab ' + t.id);
+        opt.textContent = (title.length > 45 ? title.substring(0, 42) + '...' : title) + (t.audible ? ' \uD83D\uDD0A' : '');
+        select.appendChild(opt);
+      });
+
+      const shareBtn = document.createElement('button');
+      shareBtn.className = 'btn btn-sm btn-primary';
+      shareBtn.textContent = 'Share';
+      shareBtn.disabled = true;
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-sm';
+      cancelBtn.textContent = 'Cancel';
+
+      select.addEventListener('change', () => { shareBtn.disabled = !select.value; });
+
+      row.appendChild(select);
+      row.appendChild(shareBtn);
+      row.appendChild(cancelBtn);
+
+      musicCaptureBtn.style.display = 'none';
+      musicCaptureRow.appendChild(row);
+
+      function cleanup() {
+        row.remove();
+        musicCaptureBtn.style.display = '';
+      }
+
+      shareBtn.addEventListener('click', () => {
+        const tabId = parseInt(select.value);
+        cleanup();
+        resolve(tabId || null);
+      });
+
+      cancelBtn.addEventListener('click', () => {
+        cleanup();
+        resolve(null);
+      });
+    });
+  }
+
+  async function startMusicCapture() {
+    try {
+      // 1. Show tab picker dropdown
+      const selectedTabId = await showMusicTabPicker();
+      if (!selectedTabId) return;
+
+      // 2. Mute the tab BEFORE capture (critical timing — prevents echo)
+      console.log('[MUSIC] Muting tab', selectedTabId);
+      await chrome.tabs.update(selectedTabId, { muted: true });
+      musicTabId = selectedTabId;
+
+      // 3. Brief pause, bring focus back for getDisplayMedia picker
+      await new Promise(r => setTimeout(r, 200));
+      const thisTab = await chrome.tabs.getCurrent();
+      if (thisTab) await chrome.tabs.update(thisTab.id, { active: true });
+      await new Promise(r => setTimeout(r, 200));
+
+      // 4. getDisplayMedia — user shares the same tab they selected
+      console.log('[MUSIC] Starting getDisplayMedia...');
+      musicStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: { autoGainControl: false, echoCancellation: false, noiseSuppression: false },
+        preferCurrentTab: false,
+        selfBrowserSurface: 'exclude'
+      });
+
+      // Discard video track (we only need audio)
+      musicStream.getVideoTracks().forEach(t => t.stop());
+
+      const audioTracks = musicStream.getAudioTracks();
+      console.log('[MUSIC] Audio tracks:', audioTracks.length);
+      if (audioTracks.length === 0) {
+        console.warn('[MUSIC] No audio tracks — user may not have checked "Share tab audio"');
+        await stopMusicCapture();
+        return;
+      }
+
+      // 5. Connect to audio graph if it exists
+      if (audioCtx && audioCompressor) {
+        connectMusicToGraph();
+      }
+
+      // 6. Show music volume UI
+      musicRow.classList.remove('hidden');
+      musicCaptureBtn.textContent = '\uD83C\uDFB5 Change Music';
+
+      // 7. Handle stream end
+      audioTracks[0].addEventListener('ended', handleMusicEnded);
+
+      console.log('[MUSIC] Background music capture started');
+    } catch (err) {
+      console.log('[MUSIC] Capture cancelled or failed:', err.message);
+      // Unmute tab if capture failed
+      if (musicTabId) {
+        chrome.tabs.update(musicTabId, { muted: false }).catch(() => {});
+        musicTabId = null;
+      }
+      if (musicStream) {
+        musicStream.getTracks().forEach(t => t.stop());
+        musicStream = null;
+      }
+    }
+  }
+
+  async function stopMusicCapture() {
+    // Disconnect audio nodes
+    if (musicSourceNode) { try { musicSourceNode.disconnect(); } catch {} musicSourceNode = null; }
+    if (musicGain) { try { musicGain.disconnect(); } catch {} musicGain = null; }
+
+    // Stop the stream
+    if (musicStream) {
+      musicStream.getTracks().forEach(t => t.stop());
+      musicStream = null;
+    }
+
+    // Unmute the source tab
+    if (musicTabId) {
+      await chrome.tabs.update(musicTabId, { muted: false }).catch(() => {});
+      musicTabId = null;
+    }
+
+    // Reset UI
+    musicRow.classList.add('hidden');
+    musicMuted = false;
+    musicMuteBtn.classList.remove('muted');
+    musicMuteBtn.innerHTML = '\uD83D\uDD0A';
+    musicVolumeSlider.value = 50;
+    musicVolumeValue.textContent = '50%';
+    musicCaptureBtn.textContent = '\uD83C\uDFB5 Add Background Music';
+
+    console.log('[MUSIC] Stopped');
+  }
+
+  function handleMusicEnded() {
+    console.log('[MUSIC] Stream ended (user stopped sharing or tab closed)');
+    stopMusicCapture();
+  }
+
+  // --- Mic level meter ---
+
+  const micMeterFill = document.getElementById('mic-meter-fill');
+  const micMeterLabel = document.getElementById('mic-meter-label');
+
+  function startMicMeter() {
+    if (micMeterRaf) cancelAnimationFrame(micMeterRaf);
+    if (!micAnalyser) return;
+
+    const dataArray = new Uint8Array(micAnalyser.frequencyBinCount);
+
+    function tick() {
+      micAnalyser.getByteTimeDomainData(dataArray);
+
+      // Compute RMS level
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = (dataArray[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / dataArray.length);
+      const pct = Math.min(100, Math.round(rms * 300)); // scale up for visibility
+
+      if (micMeterFill) micMeterFill.style.width = pct + '%';
+      if (micMeterLabel) micMeterLabel.textContent = pct > 0 ? pct + '%' : '--';
+
+      micMeterRaf = requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  function stopMicMeter() {
+    if (micMeterRaf) {
+      cancelAnimationFrame(micMeterRaf);
+      micMeterRaf = null;
+    }
+    if (micMeterFill) micMeterFill.style.width = '0%';
+    if (micMeterLabel) micMeterLabel.textContent = '--';
   }
 
   tabVolumeSlider.addEventListener('input', () => {
@@ -1673,7 +2780,188 @@ document.addEventListener('DOMContentLoaded', async () => {
       micMuteBtn.innerHTML = '&#x1F50A;'; // speaker with sound
       micMuteBtn.title = 'Mute mic';
     }
+    syncPipState();
   });
+
+  // Music volume / mute / capture / stop
+  musicVolumeSlider.addEventListener('input', () => {
+    const val = parseInt(musicVolumeSlider.value) / 100;
+    musicVolumeValue.textContent = musicVolumeSlider.value + '%';
+    if (musicMuted) {
+      savedMusicGain = val;
+    } else {
+      if (musicGain) musicGain.gain.value = val;
+    }
+  });
+
+  musicMuteBtn.addEventListener('click', () => {
+    musicMuted = !musicMuted;
+    if (musicMuted) {
+      savedMusicGain = musicGain ? musicGain.gain.value : parseInt(musicVolumeSlider.value) / 100;
+      if (musicGain) musicGain.gain.value = 0;
+      musicMuteBtn.classList.add('muted');
+      musicMuteBtn.innerHTML = '\uD83D\uDD07';
+      musicMuteBtn.title = 'Unmute music';
+    } else {
+      if (musicGain) musicGain.gain.value = savedMusicGain;
+      musicMuteBtn.classList.remove('muted');
+      musicMuteBtn.innerHTML = '\uD83D\uDD0A';
+      musicMuteBtn.title = 'Mute music';
+    }
+  });
+
+  musicCaptureBtn.addEventListener('click', () => startMusicCapture());
+  stopMusicBtn.addEventListener('click', () => stopMusicCapture());
+
+  // ============================================================
+  // Audio Dev Tools
+  // ============================================================
+
+  function applyCompressorParams() {
+    if (!audioCompressor) return;
+    if (audioDevBypassCompressor) {
+      audioCompressor.threshold.value = 0;
+      audioCompressor.ratio.value = 1;
+    } else {
+      audioCompressor.threshold.value = audioDevCompressor.threshold;
+      audioCompressor.knee.value = audioDevCompressor.knee;
+      audioCompressor.ratio.value = audioDevCompressor.ratio;
+      audioCompressor.attack.value = audioDevCompressor.attack;
+      audioCompressor.release.value = audioDevCompressor.release;
+    }
+  }
+
+  function startAudioPeakMeter() {
+    if (audioDevPeakRaf) cancelAnimationFrame(audioDevPeakRaf);
+    const fillEl = document.getElementById('audio-dev-clip-fill');
+    const peakEl = document.getElementById('audio-dev-clip');
+    const ctxEl = document.getElementById('audio-dev-ctx-state');
+    const srEl = document.getElementById('audio-dev-sample-rate');
+    let peakHold = 0;
+    let peakDecay = 0;
+    let lastStatsUpdate = 0;
+
+    function tick() {
+      audioDevPeakRaf = requestAnimationFrame(tick);
+      if (!audioDevPanelOpen) return;
+
+      if (audioDevPeakAnalyser) {
+        const buf = new Float32Array(audioDevPeakAnalyser.fftSize);
+        audioDevPeakAnalyser.getFloatTimeDomainData(buf);
+        let peak = 0;
+        for (let i = 0; i < buf.length; i++) {
+          const abs = Math.abs(buf[i]);
+          if (abs > peak) peak = abs;
+        }
+
+        // Peak hold with decay
+        if (peak > peakHold) peakHold = peak;
+        else peakHold *= 0.995;
+        peakDecay = peakHold;
+
+        const pct = Math.min(peakDecay * 100, 100);
+        if (fillEl) fillEl.style.width = pct + '%';
+        if (peakDecay > 0.95 && fillEl) fillEl.style.background = '#ef4444';
+        else if (fillEl) fillEl.style.background = '';
+      }
+
+      // Throttled stats update (4Hz)
+      const now = performance.now();
+      if (now - lastStatsUpdate > 250) {
+        lastStatsUpdate = now;
+        const dB = peakDecay > 0 ? (20 * Math.log10(peakDecay)).toFixed(1) : '-inf';
+        if (peakEl) peakEl.textContent = `Peak: ${dB}dB`;
+        if (peakDecay > 0.95 && peakEl) peakEl.style.color = '#ef4444';
+        else if (peakEl) peakEl.style.color = '';
+        if (ctxEl) ctxEl.textContent = `Ctx: ${audioCtx?.state ?? 'none'}`;
+        if (srEl) srEl.textContent = `SR: ${audioCtx?.sampleRate ?? '--'}`;
+      }
+    }
+    tick();
+  }
+
+  function stopAudioPeakMeter() {
+    if (audioDevPeakRaf) { cancelAnimationFrame(audioDevPeakRaf); audioDevPeakRaf = null; }
+  }
+
+  // Panel toggle
+  const audioDevToggle = document.getElementById('audio-dev-toggle');
+  const audioDevBody = document.getElementById('audio-dev-body');
+  const audioDevChevron = document.getElementById('audio-dev-chevron');
+  if (audioDevToggle) {
+    audioDevToggle.addEventListener('click', () => {
+      audioDevPanelOpen = !audioDevPanelOpen;
+      if (audioDevBody) audioDevBody.classList.toggle('hidden', !audioDevPanelOpen);
+      if (audioDevChevron) audioDevChevron.classList.toggle('open', audioDevPanelOpen);
+      if (audioDevPanelOpen) startAudioPeakMeter();
+      else stopAudioPeakMeter();
+    });
+  }
+
+  // Bypass compressor
+  const bypassEl = document.getElementById('audio-dev-bypass-compressor');
+  if (bypassEl) {
+    bypassEl.addEventListener('change', () => {
+      audioDevBypassCompressor = bypassEl.checked;
+      applyCompressorParams();
+    });
+  }
+
+  // Compressor sliders
+  const compSliders = [
+    { id: 'audio-dev-threshold', valId: 'audio-dev-threshold-val', prop: 'threshold', unit: 'dB', mult: 1 },
+    { id: 'audio-dev-knee', valId: 'audio-dev-knee-val', prop: 'knee', unit: 'dB', mult: 1 },
+    { id: 'audio-dev-ratio', valId: 'audio-dev-ratio-val', prop: 'ratio', unit: ':1', mult: 1 },
+    { id: 'audio-dev-attack', valId: 'audio-dev-attack-val', prop: 'attack', unit: 'ms', mult: 0.001 },
+    { id: 'audio-dev-release', valId: 'audio-dev-release-val', prop: 'release', unit: 'ms', mult: 0.001 }
+  ];
+  for (const s of compSliders) {
+    const el = document.getElementById(s.id);
+    const valEl = document.getElementById(s.valId);
+    if (el) {
+      el.addEventListener('input', () => {
+        const raw = parseFloat(el.value);
+        audioDevCompressor[s.prop] = raw * s.mult;
+        if (valEl) valEl.textContent = raw + s.unit;
+        applyCompressorParams();
+      });
+    }
+  }
+
+  // Bitrate selector
+  const bitrateEl = document.getElementById('audio-dev-bitrate');
+  if (bitrateEl) {
+    bitrateEl.addEventListener('change', () => {
+      audioDevBitrate = parseInt(bitrateEl.value);
+    });
+  }
+
+  // Reset defaults
+  const audioDevResetBtn = document.getElementById('audio-dev-reset-btn');
+  if (audioDevResetBtn) {
+    audioDevResetBtn.addEventListener('click', () => {
+      audioDevBypassCompressor = false;
+      audioDevCompressor = { threshold: -12, knee: 10, ratio: 2, attack: 0.005, release: 0.2 };
+      audioDevBitrate = 128000;
+
+      if (bypassEl) bypassEl.checked = false;
+      if (bitrateEl) bitrateEl.value = '128000';
+
+      const syncSlider = (id, valId, value, display) => {
+        const sl = document.getElementById(id);
+        const vl = document.getElementById(valId);
+        if (sl) sl.value = value;
+        if (vl) vl.textContent = display;
+      };
+      syncSlider('audio-dev-threshold', 'audio-dev-threshold-val', -12, '-12dB');
+      syncSlider('audio-dev-knee', 'audio-dev-knee-val', 10, '10dB');
+      syncSlider('audio-dev-ratio', 'audio-dev-ratio-val', 2, '2:1');
+      syncSlider('audio-dev-attack', 'audio-dev-attack-val', 5, '5ms');
+      syncSlider('audio-dev-release', 'audio-dev-release-val', 200, '200ms');
+
+      applyCompressorParams();
+    });
+  }
 
   // ============================================================
   // (e) Player controls
@@ -1757,6 +3045,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Compose recording stream: recording canvas video + mixed audio
     const canvasStream = recordingCanvas.captureStream(RX_DEFAULTS.frameRate);
     const audioTracks = audioDest ? audioDest.stream.getAudioTracks() : [];
+
+    // [AUDIO DEBUG] Comprehensive state dump before recording
+    console.log('[AUDIO DEBUG] === RECORDING START — AUDIO STATE DUMP ===');
+    console.log('[AUDIO DEBUG]   AudioContext state:', audioCtx?.state ?? 'NO audioCtx');
+    console.log('[AUDIO DEBUG]   audioDest exists:', !!audioDest);
+    console.log('[AUDIO DEBUG]   audioDest audio tracks:', audioTracks.length);
+    audioTracks.forEach((t, i) => console.log(`[AUDIO DEBUG]     dest track[${i}]: readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
+    console.log('[AUDIO DEBUG]   tabStream exists:', !!tabStream);
+    const _dbgTabAT = tabStream?.getAudioTracks() || [];
+    console.log('[AUDIO DEBUG]   tabStream audio tracks:', _dbgTabAT.length);
+    _dbgTabAT.forEach((t, i) => console.log(`[AUDIO DEBUG]     tab src track[${i}]: readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
+    console.log('[AUDIO DEBUG]   camStream exists:', !!camStream);
+    const _dbgMicAT = camStream?.getAudioTracks() || [];
+    console.log('[AUDIO DEBUG]   camStream audio tracks:', _dbgMicAT.length);
+    _dbgMicAT.forEach((t, i) => console.log(`[AUDIO DEBUG]     mic src track[${i}]: readyState=${t.readyState} enabled=${t.enabled} muted=${t.muted}`));
+    console.log('[AUDIO DEBUG]   tabGain value:', tabGain?.gain?.value ?? 'N/A');
+    console.log('[AUDIO DEBUG]   micGain value:', micGain?.gain?.value ?? 'N/A', ', micMuted:', micMuted);
+    console.log('[AUDIO DEBUG]   canvasStream video tracks:', canvasStream.getVideoTracks().length);
+    if (audioTracks.length === 0) console.error('[AUDIO DEBUG]   ❌ RECORDING WILL HAVE NO AUDIO — audioDest has 0 tracks');
+    if (audioCtx?.state === 'suspended') console.error('[AUDIO DEBUG]   ❌ AudioContext is SUSPENDED — audio pipeline is frozen');
+    console.log('[AUDIO DEBUG] === END AUDIO STATE DUMP ===');
+
     composedStream = new MediaStream([
       ...canvasStream.getVideoTracks(),
       ...audioTracks
@@ -1767,9 +3077,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? 'video/webm;codecs=vp9,opus'
       : 'video/webm';
 
+    console.log('[AUDIO DEBUG]   composedStream tracks — video:', composedStream.getVideoTracks().length, ', audio:', composedStream.getAudioTracks().length, ', mimeType:', mimeType);
+
     mediaRecorder = new MediaRecorder(composedStream, {
       mimeType,
-      videoBitsPerSecond: RX_DEFAULTS.videoBitrate
+      videoBitsPerSecond: RX_DEFAULTS.videoBitrate,
+      audioBitsPerSecond: audioDevBitrate
     });
 
     recordedChunks = [];
@@ -1798,8 +3111,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // Capture sync link data
-    recordingStartVideoId = nowPlaying?.videoId || null;
-    recordingStartVideoTime = playerCurrentTime || 0;
 
     mediaRecorder.start(1000);
     startTime = Date.now();
@@ -1835,6 +3146,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   stopBtn.addEventListener('click', async () => {
     stopBtn.disabled = true;
+
+    // Pause the YouTube video
+    chrome.runtime.sendMessage({ type: RX_MESSAGES.PAUSE_VIDEO }).catch(() => {});
+    playerPlaying = false;
+    playPauseBtn.innerHTML = '&#x25B6;';
 
     // Stop speech recognition
     if (speechRecognition) {
@@ -1890,6 +3206,156 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // ============================================================
+  // Document PiP popout
+  // ============================================================
+
+  async function openPipPopout() {
+    if (!('documentPictureInPicture' in window)) return;
+    if (pipWindow && !pipWindow.closed) return;
+
+    pipWindow = await documentPictureInPicture.requestWindow({
+      width: 400,
+      height: 280
+    });
+
+    const doc = pipWindow.document;
+    doc.head.innerHTML = `<style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        background: #1a1a1a; color: #f1f1f1; font-family: system-ui, sans-serif;
+        display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+      }
+      .pip-preview { flex: 1; position: relative; background: #000; min-height: 0; }
+      .pip-preview canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
+      .pip-status {
+        position: absolute; top: 8px; left: 8px;
+        display: flex; align-items: center; gap: 5px;
+        font-size: 11px; font-weight: 700;
+        background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 4px;
+      }
+      .pip-dot {
+        width: 8px; height: 8px; border-radius: 50%; background: #cc0000;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .pip-dot.paused { background: #e6a700; animation: none; }
+      @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+      .pip-timer {
+        position: absolute; top: 8px; right: 8px;
+        font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+        background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 4px;
+      }
+      .pip-controls {
+        display: flex; gap: 6px; padding: 8px; background: #202020;
+        justify-content: center; flex-shrink: 0;
+      }
+      .pip-btn {
+        padding: 5px 12px; border: 1px solid #4a4a4a; border-radius: 5px;
+        background: #3f3f3f; color: #f1f1f1; font-size: 12px; font-weight: 600;
+        font-family: inherit; cursor: pointer; transition: background 0.15s;
+      }
+      .pip-btn:hover { background: #4a4a4a; }
+      .pip-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .pip-btn.pip-stop { color: #ff4444; border-color: #5a2d2d; }
+      .pip-btn.pip-stop:hover { background: #4a3030; }
+      .pip-btn.pip-end-capture { color: #ff4444; border-color: #5a2d2d; }
+      .pip-btn.pip-end-capture:hover { background: #4a3030; }
+      .pip-btn.pip-mute.muted { background: #cc0000; border-color: #cc0000; color: white; }
+    </style>`;
+
+    doc.body.innerHTML = `
+      <div class="pip-preview">
+        <canvas id="pip-canvas" width="640" height="360"></canvas>
+        <div class="pip-status">
+          <div class="pip-dot" id="pip-dot"></div>
+          <span id="pip-status-label">REC</span>
+        </div>
+        <div class="pip-timer" id="pip-timer">${formatRecTime(timerSeconds)}</div>
+      </div>
+      <div class="pip-controls">
+        <button class="pip-btn" id="pip-pause-btn">${currentState === RX_STATES.PAUSED ? 'Resume' : 'Pause'}</button>
+        <button class="pip-btn pip-stop" id="pip-stop-btn">Stop</button>
+        <button class="pip-btn pip-end-capture" id="pip-end-capture-btn" style="display:${screenCaptureMode ? '' : 'none'}">End Capture</button>
+        <button class="pip-btn pip-mute${micMuted ? ' muted' : ''}" id="pip-mute-btn">${micMuted ? '\uD83D\uDD07' : '\uD83D\uDD0A'}</button>
+      </div>`;
+
+    pipMiniCanvas = doc.getElementById('pip-canvas');
+    pipMiniCtx = pipMiniCanvas.getContext('2d');
+    pipMiniTimerEl = doc.getElementById('pip-timer');
+    pipMiniDotEl = doc.getElementById('pip-dot');
+    pipMiniStatusEl = doc.getElementById('pip-status-label');
+
+    // Delegate controls to parent page
+    doc.getElementById('pip-pause-btn').addEventListener('click', () => pauseBtn.click());
+    doc.getElementById('pip-stop-btn').addEventListener('click', () => stopBtn.click());
+    doc.getElementById('pip-end-capture-btn').addEventListener('click', () => stopScreenCaptureBtn.click());
+    doc.getElementById('pip-mute-btn').addEventListener('click', () => micMuteBtn.click());
+
+    pipWindow.addEventListener('pagehide', () => closePipPopout());
+
+    popoutBtn.textContent = 'Pop In';
+    syncPipState();
+  }
+
+  function closePipPopout() {
+    if (pipWindow && !pipWindow.closed) pipWindow.close();
+    pipWindow = null;
+    pipMiniCanvas = null;
+    pipMiniCtx = null;
+    pipMiniTimerEl = null;
+    pipMiniDotEl = null;
+    pipMiniStatusEl = null;
+    popoutBtn.textContent = 'Pop Out';
+  }
+
+  function syncPipState() {
+    if (!pipWindow || pipWindow.closed) return;
+    const doc = pipWindow.document;
+
+    // Pause/Resume text
+    const pauseEl = doc.getElementById('pip-pause-btn');
+    if (pauseEl) {
+      pauseEl.textContent = currentState === RX_STATES.PAUSED ? 'Resume' : 'Pause';
+      pauseEl.disabled = currentState !== RX_STATES.RECORDING && currentState !== RX_STATES.PAUSED;
+    }
+
+    // Stop disabled
+    const stopEl = doc.getElementById('pip-stop-btn');
+    if (stopEl) stopEl.disabled = currentState !== RX_STATES.RECORDING && currentState !== RX_STATES.PAUSED;
+
+    // End Capture visibility
+    const endCap = doc.getElementById('pip-end-capture-btn');
+    if (endCap) endCap.style.display = screenCaptureMode ? '' : 'none';
+
+    // Status dot
+    if (pipMiniDotEl) {
+      pipMiniDotEl.classList.toggle('paused', currentState === RX_STATES.PAUSED);
+    }
+    if (pipMiniStatusEl) {
+      pipMiniStatusEl.textContent = currentState === RX_STATES.PAUSED ? 'PAUSED' : 'REC';
+    }
+
+    // Mic mute
+    const muteEl = doc.getElementById('pip-mute-btn');
+    if (muteEl) {
+      muteEl.classList.toggle('muted', micMuted);
+      muteEl.innerHTML = micMuted ? '&#x1F507;' : '&#x1F50A;';
+    }
+  }
+
+  // Feature detection — hide button if API not available
+  if (!('documentPictureInPicture' in window)) {
+    popoutBtn.style.display = 'none';
+  }
+
+  popoutBtn.addEventListener('click', () => {
+    if (pipWindow && !pipWindow.closed) {
+      closePipPopout();
+    } else {
+      openPipPopout();
+    }
+  });
+
+  // ============================================================
   // State management
   // ============================================================
 
@@ -1940,6 +3406,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         stopTimer();
         break;
     }
+
+    // Document PiP sync — available whenever a stream is active (pre-record + recording)
+    const pipActive = state !== RX_STATES.STOPPED && (tabStream || camStream);
+    popoutBtn.disabled = !pipActive;
+    if (state === RX_STATES.STOPPED) closePipPopout();
+    syncPipState();
   }
 
   // ============================================================
@@ -1947,12 +3419,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ============================================================
 
   function startTimer() {
-    if (timerInterval) return;
     timerPaused = false;
+    if (timerInterval) return;
     timerInterval = setInterval(() => {
       if (!timerPaused) {
         timerSeconds++;
-        recTimer.textContent = formatRecTime(timerSeconds);
+        const timeStr = formatRecTime(timerSeconds);
+        recTimer.textContent = timeStr;
+        if (pipMiniTimerEl) pipMiniTimerEl.textContent = timeStr;
       }
     }, 1000);
   }
@@ -2005,33 +3479,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Sync link
-    const syncLinkRow = document.getElementById('sync-link-row');
-    const syncLinkInput = document.getElementById('sync-link-input');
-    if (recordingStartVideoId && !webcamOnlyMode) {
-      const t = Math.floor(recordingStartVideoTime);
-      const syncUrl = `https://youtu.be/${recordingStartVideoId}${t > 0 ? '?t=' + t : ''}`;
-      if (syncLinkInput) syncLinkInput.value = syncUrl;
-      if (syncLinkRow) syncLinkRow.classList.remove('hidden');
-      uploadDescription.value = `Original video: ${syncUrl}`;
-    } else {
-      if (syncLinkRow) syncLinkRow.classList.add('hidden');
-      uploadDescription.value = '';
-    }
+    uploadDescription.value = '';
     updateCharCounters();
 
     outputSection.classList.remove('hidden');
   }
 
   function closeOutput() {
+    outputVideo.pause();
     outputSection.classList.add('hidden');
   }
 
   outputCloseBtn.addEventListener('click', closeOutput);
 
-  // Close output overlay on click outside
-  outputSection.addEventListener('click', (e) => {
-    if (e.target === outputSection) closeOutput();
-  });
+  // Modal is locked — user must use close button, download, or upload to dismiss
 
   downloadBtn.addEventListener('click', async () => {
     if (!lastRecordingBlob) return;
@@ -2064,8 +3525,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     uploadDescCount.textContent = uploadDescription.value.length + '/' + uploadDescription.maxLength;
   }
 
-  uploadTitle.addEventListener('input', updateCharCounters);
-  uploadDescription.addEventListener('input', updateCharCounters);
+  const aiGenerateBtn = document.getElementById('ai-generate-meta-btn');
+  const aiGenerateHint = document.getElementById('ai-generate-hint');
+  const aiGenerateStatus = document.getElementById('ai-generate-status');
+
+  function updateAiGenerateButton() {
+    const combinedLen = uploadTitle.value.trim().length + uploadDescription.value.trim().length;
+    const enabled = combinedLen >= 10;
+    if (aiGenerateBtn) aiGenerateBtn.disabled = !enabled;
+    if (aiGenerateHint) aiGenerateHint.style.display = enabled ? 'none' : '';
+  }
+
+  uploadTitle.addEventListener('input', () => { updateCharCounters(); updateAiGenerateButton(); });
+  uploadDescription.addEventListener('input', () => { updateCharCounters(); updateAiGenerateButton(); });
 
   // --- Channel population ---
 
@@ -2432,12 +3904,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     switch (message.type) {
       case RX_MESSAGES.STATE_CHANGED:
-        if (message.youTubeTabClosed) {
+        if (message.youTubeTabClosed && !screenCaptureMode) {
           handleStreamEnded();
         }
         break;
 
       case RX_MESSAGES.PLAYER_STATE:
+        if (screenCaptureMode) break; // No YouTube player in screen capture mode
         updatePlayerUI(message.currentTime, message.duration, message.playerState);
         // Auto-advance when video ends (state 0) and not recording
         if (message.playerState === 0 && videoQueue.length > 0 &&
@@ -2466,25 +3939,37 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Audio-only toggle (no camera)
+  const audioOnlyToggle = document.getElementById('audio-only-toggle');
+  const camControlsSection = document.getElementById('cam-controls-section');
+  if (audioOnlyToggle) {
+    audioOnlyToggle.addEventListener('change', () => {
+      audioOnlyMode = audioOnlyToggle.checked;
+      // Dim/enable cam controls
+      if (camControlsSection) {
+        camControlsSection.style.opacity = audioOnlyMode ? '0.35' : '';
+        camControlsSection.style.pointerEvents = audioOnlyMode ? 'none' : '';
+      }
+      // Stop cam if switching to audio-only mid-session
+      if (audioOnlyMode && camStream) {
+        camStream.getTracks().forEach(t => t.stop());
+        camStream = null;
+        stopMicMeter();
+        camVideo.srcObject = null;
+      }
+      // Restart cam if switching back and a video is loaded
+      if (!audioOnlyMode && !camStream && tabStream) {
+        startCamStream();
+      }
+    });
+  }
+
   // Webcam-only toggle
   const webcamOnlyToggle = document.getElementById('webcam-only-toggle');
   if (webcamOnlyToggle) {
     webcamOnlyToggle.addEventListener('change', () => {
       webcamOnlyMode = webcamOnlyToggle.checked;
       recordingView = webcamOnlyMode ? RX_VIEWS.CAMERA : RX_VIEWS.FINAL;
-    });
-  }
-
-  // Sync link copy button
-  const syncLinkCopy = document.getElementById('sync-link-copy');
-  const syncLinkInput = document.getElementById('sync-link-input');
-  if (syncLinkCopy && syncLinkInput) {
-    syncLinkCopy.addEventListener('click', () => {
-      navigator.clipboard.writeText(syncLinkInput.value).then(() => {
-        const orig = syncLinkCopy.textContent;
-        syncLinkCopy.textContent = 'Copied!';
-        setTimeout(() => { syncLinkCopy.textContent = orig; }, 1500);
-      });
     });
   }
 
@@ -2516,28 +4001,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentLayout = RX_LAYOUTS.PIP;
         pipSizePercent = 25;
         snapPipToCorner('top-left');
+        resetVidToFullCanvas();
         break;
       case RX_PRESETS.PIP_TR:
         currentLayout = RX_LAYOUTS.PIP;
         pipSizePercent = 25;
         snapPipToCorner('top-right');
+        resetVidToFullCanvas();
         break;
       case RX_PRESETS.PIP_BL:
         currentLayout = RX_LAYOUTS.PIP;
         pipSizePercent = 25;
         snapPipToCorner('bottom-left');
+        resetVidToFullCanvas();
         break;
       case RX_PRESETS.PIP_BR:
         currentLayout = RX_LAYOUTS.PIP;
         pipSizePercent = 25;
         snapPipToCorner('bottom-right');
+        resetVidToFullCanvas();
         break;
       case RX_PRESETS.SIDE_BY_SIDE:
-        currentLayout = RX_LAYOUTS.SIDE_BY_SIDE;
+        if (currentLayout === RX_LAYOUTS.SIDE_BY_SIDE) {
+          sideBySideSwapped = !sideBySideSwapped;
+        } else {
+          currentLayout = RX_LAYOUTS.SIDE_BY_SIDE;
+          sideBySideSwapped = false;
+        }
         break;
       case RX_PRESETS.REACTOR_OVER:
         currentLayout = RX_LAYOUTS.PIP;
         pipSizePercent = 60;
+        resetVidToFullCanvas();
         // Center the PiP
         const cw = previewCanvas.width;
         const ch = previewCanvas.height;
@@ -2560,6 +4055,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function syncStyleTabToState() {
+    const isSbs = currentLayout === RX_LAYOUTS.SIDE_BY_SIDE;
+
     // Size slider
     const sizeSlider = document.getElementById('style-pip-size-slider');
     const sizeValue = document.getElementById('style-pip-size-value');
@@ -2574,10 +4071,132 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Clear snap-to-corner highlights (presets set position directly)
     document.querySelectorAll('.snap-btn').forEach(b => b.classList.remove('pip-btn-active'));
 
-    // Show/hide PiP-only controls
+    // Show/hide PiP-only vs SBS-only controls
     const pipControls = document.getElementById('pip-only-controls');
-    if (pipControls) {
-      pipControls.style.display = currentLayout === RX_LAYOUTS.SIDE_BY_SIDE ? 'none' : '';
+    const sbsControls = document.getElementById('sbs-only-controls');
+    if (pipControls) pipControls.style.display = isSbs ? 'none' : '';
+    if (sbsControls) sbsControls.style.display = isSbs ? '' : 'none';
+
+    // Sync video size slider
+    const vidSlider = document.getElementById('style-vid-size-slider');
+    const vidValue = document.getElementById('style-vid-size-value');
+    if (vidSlider) vidSlider.value = vidSizePercent;
+    if (vidValue) vidValue.textContent = vidSizePercent + '%';
+
+    // Sync split slider
+    const splitSlider = document.getElementById('sbs-split-slider');
+    const splitValue = document.getElementById('sbs-split-value');
+    if (splitSlider) splitSlider.value = sbsSplitPercent;
+    if (splitValue) splitValue.textContent = sbsSplitPercent + '%';
+  }
+
+  // ============================================================
+  // Style prefs persistence
+  // ============================================================
+
+  const STYLE_PREFS_KEY = 'tubepilot_rx_style';
+  let _stylePrefsTimer = null;
+
+  function saveStylePrefs() {
+    clearTimeout(_stylePrefsTimer);
+    _stylePrefsTimer = setTimeout(() => {
+      chrome.storage.local.set({
+        [STYLE_PREFS_KEY]: {
+          activePreset,
+          currentLayout,
+          pipSizePercent,
+          pipShape,
+          pipBorderColor,
+          pipBorderWidth,
+          sbsSplitPercent,
+          vidSizePercent,
+          bgRemovalEnabled,
+          bgRemovalMode,
+          bgFeatherValue,
+          bgBlurStrength,
+          camMirrored
+        }
+      });
+    }, 300);
+  }
+
+  async function loadStylePrefs() {
+    const result = await chrome.storage.local.get(STYLE_PREFS_KEY);
+    const prefs = result[STYLE_PREFS_KEY];
+    if (!prefs) return;
+
+    // Restore state
+    if (prefs.pipShape) pipShape = prefs.pipShape;
+    if (prefs.pipBorderColor != null) pipBorderColor = prefs.pipBorderColor;
+    if (prefs.pipBorderWidth != null) pipBorderWidth = prefs.pipBorderWidth;
+    if (prefs.pipSizePercent != null) pipSizePercent = prefs.pipSizePercent;
+    if (prefs.sbsSplitPercent != null) sbsSplitPercent = prefs.sbsSplitPercent;
+    if (prefs.vidSizePercent != null) vidSizePercent = prefs.vidSizePercent;
+    if (prefs.bgRemovalMode) bgRemovalMode = prefs.bgRemovalMode;
+    if (prefs.bgFeatherValue != null) bgFeatherValue = prefs.bgFeatherValue;
+    if (prefs.bgBlurStrength != null) bgBlurStrength = prefs.bgBlurStrength;
+    if (prefs.camMirrored != null) camMirrored = prefs.camMirrored;
+
+    // Restore layout via preset or direct layout
+    if (prefs.activePreset) {
+      applyPreset(prefs.activePreset);
+    } else if (prefs.currentLayout) {
+      currentLayout = prefs.currentLayout;
+    }
+
+    // Sync all UI controls to match restored state
+    syncStyleTabToState();
+
+    // Border color swatch
+    document.querySelectorAll('.color-swatch').forEach(s => {
+      s.classList.toggle('swatch-active', s.dataset.color === pipBorderColor);
+    });
+
+    // Border width slider
+    const borderSlider = document.getElementById('border-width-slider');
+    const borderValue = document.getElementById('border-width-value');
+    if (borderSlider) borderSlider.value = pipBorderWidth;
+    if (borderValue) borderValue.textContent = pipBorderWidth + 'px';
+
+    // BG removal sub-options
+    const bgFeatherSlider = document.getElementById('bg-feather-slider');
+    const bgFeatherValueEl = document.getElementById('bg-feather-value');
+    const bgBlurSlider = document.getElementById('bg-blur-slider');
+    const bgBlurValueEl = document.getElementById('bg-blur-value');
+    const bgFeatherRow = document.getElementById('bg-feather-row');
+    const bgBlurRow = document.getElementById('bg-blur-row');
+
+    if (bgFeatherSlider) bgFeatherSlider.value = bgFeatherValue;
+    if (bgFeatherValueEl) bgFeatherValueEl.textContent = bgFeatherValue;
+    if (bgBlurSlider) bgBlurSlider.value = bgBlurStrength;
+    if (bgBlurValueEl) bgBlurValueEl.textContent = bgBlurStrength;
+    buildFeatherLUT(bgFeatherValue);
+
+    // BG mode buttons
+    document.querySelectorAll('.bg-mode-btn').forEach(b => {
+      b.classList.toggle('bg-mode-active', b.dataset.mode === bgRemovalMode);
+    });
+    if (bgRemovalMode === 'blur') {
+      if (bgFeatherRow) bgFeatherRow.classList.add('hidden');
+      if (bgBlurRow) bgBlurRow.classList.remove('hidden');
+    } else {
+      if (bgFeatherRow) bgFeatherRow.classList.remove('hidden');
+      if (bgBlurRow) bgBlurRow.classList.add('hidden');
+    }
+
+    // BG removal toggle — restore enabled state
+    if (prefs.bgRemovalEnabled && bgRemovalSupported) {
+      const bgToggle = document.getElementById('bg-removal-toggle');
+      if (bgToggle && !bgToggle.checked) {
+        bgToggle.checked = true;
+        bgToggle.dispatchEvent(new Event('change'));
+      }
+    }
+
+    // Mirror button
+    if (camMirrored) {
+      mirrorBtn.classList.add('active');
+      camPreview.style.transform = 'scaleX(-1)';
     }
   }
 
@@ -2586,6 +4205,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.preset-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         applyPreset(btn.dataset.preset);
+        saveStylePrefs();
       });
     });
 
@@ -2596,6 +4216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelectorAll('.snap-btn').forEach(b => b.classList.remove('pip-btn-active'));
         btn.classList.add('pip-btn-active');
         snapPipToCorner(btn.dataset.pos);
+        saveStylePrefs();
       });
     });
 
@@ -2611,6 +4232,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if ((oldShape === RX_PIP_SHAPES.CIRCLE) !== (pipShape === RX_PIP_SHAPES.CIRCLE)) {
           recenterPipOnShapeChange(oldShape);
         }
+        saveStylePrefs();
       });
     });
 
@@ -2620,6 +4242,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('swatch-active'));
         swatch.classList.add('swatch-active');
         pipBorderColor = swatch.dataset.color;
+        saveStylePrefs();
       });
     });
 
@@ -2630,6 +4253,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       borderSlider.addEventListener('input', () => {
         pipBorderWidth = parseInt(borderSlider.value);
         borderValue.textContent = pipBorderWidth + 'px';
+        saveStylePrefs();
       });
     }
 
@@ -2651,6 +4275,47 @@ document.addEventListener('DOMContentLoaded', async () => {
         const newH = pipShape === RX_PIP_SHAPES.CIRCLE ? newW : Math.round(newW * (9 / 16));
         pipX = oldCX - newW / 2;
         pipY = oldCY - newH / 2;
+        saveStylePrefs();
+      });
+    }
+
+    // Video size slider
+    const vidSlider = document.getElementById('style-vid-size-slider');
+    const vidValue = document.getElementById('style-vid-size-value');
+    if (vidSlider) {
+      vidSlider.addEventListener('input', () => {
+        clearActivePreset();
+        const newPct = parseInt(vidSlider.value);
+
+        if (newPct >= 100) {
+          // Reset to full canvas
+          resetVidToFullCanvas();
+        } else {
+          // Resize from center of current position
+          const oldRect = calcVidRect(previewCanvas);
+          const oldCX = oldRect.x + oldRect.w / 2;
+          const oldCY = oldRect.y + oldRect.h / 2;
+
+          vidSizePercent = newPct;
+
+          const newW = Math.round(previewCanvas.width * (vidSizePercent / 100));
+          const newH = Math.round(newW * (9 / 16));
+          vidX = oldCX - newW / 2;
+          vidY = oldCY - newH / 2;
+        }
+        vidValue.textContent = vidSizePercent + '%';
+        saveStylePrefs();
+      });
+    }
+
+    // Split ratio slider (side-by-side)
+    const splitSlider = document.getElementById('sbs-split-slider');
+    const splitValue = document.getElementById('sbs-split-value');
+    if (splitSlider) {
+      splitSlider.addEventListener('input', () => {
+        sbsSplitPercent = parseInt(splitSlider.value);
+        splitValue.textContent = sbsSplitPercent + '%';
+        saveStylePrefs();
       });
     }
 
@@ -2685,6 +4350,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (bgOptions) bgOptions.classList.add('hidden');
           if (bgStatusHint) bgStatusHint.textContent = 'Remove or blur your webcam background';
         }
+        saveStylePrefs();
       });
     }
 
@@ -2701,6 +4367,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (bgFeatherRow) bgFeatherRow.classList.remove('hidden');
           if (bgBlurRow) bgBlurRow.classList.add('hidden');
         }
+        saveStylePrefs();
       });
     });
 
@@ -2710,6 +4377,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         bgFeatherValue = parseInt(bgFeatherSlider.value);
         if (bgFeatherValueEl) bgFeatherValueEl.textContent = bgFeatherValue;
         buildFeatherLUT(bgFeatherValue);
+        saveStylePrefs();
       });
     }
 
@@ -2718,6 +4386,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       bgBlurSlider.addEventListener('input', () => {
         bgBlurStrength = parseInt(bgBlurSlider.value);
         if (bgBlurValueEl) bgBlurValueEl.textContent = bgBlurStrength;
+        saveStylePrefs();
+      });
+    }
+
+    // Dilation slider
+    const bgDilationSlider = document.getElementById('bg-dilation-slider');
+    const bgDilationVal = document.getElementById('bg-dilation-value');
+    if (bgDilationSlider) {
+      bgDilationSlider.addEventListener('input', () => {
+        bgMaskDilation = parseInt(bgDilationSlider.value);
+        if (bgDilationVal) bgDilationVal.textContent = bgMaskDilation + 'px';
+        saveStylePrefs();
+      });
+    }
+
+    // Mask smoothing slider
+    const bgMaskBlurSlider = document.getElementById('bg-mask-blur-slider');
+    const bgMaskBlurVal = document.getElementById('bg-mask-blur-value');
+    if (bgMaskBlurSlider) {
+      bgMaskBlurSlider.addEventListener('input', () => {
+        bgMaskSmoothing = parseInt(bgMaskBlurSlider.value);
+        if (bgMaskBlurVal) bgMaskBlurVal.textContent = bgMaskSmoothing + 'px';
+        saveStylePrefs();
       });
     }
   }
@@ -3237,6 +4928,73 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // --- AI Generate (upload form button) ---
+
+  async function generateAiMetaFromForm() {
+    if (aiMetaGenerating) return;
+    aiMetaGenerating = true;
+    if (aiGenerateBtn) aiGenerateBtn.disabled = true;
+    if (aiGenerateStatus) aiGenerateStatus.textContent = 'Generating...';
+
+    try {
+      let videoDesc = '';
+      // Include user-entered title/description as primary context
+      const userTitle = uploadTitle.value.trim();
+      const userDesc = uploadDescription.value.trim();
+      if (userTitle) videoDesc += `Title draft: "${userTitle}". `;
+      if (userDesc) videoDesc += `Description draft: "${userDesc}". `;
+
+      // Add now-playing video context
+      if (nowPlaying) {
+        videoDesc += `Reaction video to: "${nowPlaying.title}"`;
+        if (nowPlaying.channelTitle) videoDesc += ` by ${nowPlaying.channelTitle}`;
+        videoDesc += '. ';
+      }
+      videoDesc += 'This is a reaction/commentary video. ';
+
+      // Add caption excerpts
+      if (captionSegments.length > 0) {
+        const excerpts = captionSegments.slice(0, 5).map(s => s.text).join('. ');
+        videoDesc += 'Reactor said: ' + excerpts;
+      }
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'GENERATE_YOUTUBE_META',
+        videoDescription: videoDesc,
+        product: null,
+        channelContext: null
+      });
+
+      if (response?.error) {
+        if (aiGenerateStatus) aiGenerateStatus.textContent = response.error;
+        return;
+      }
+
+      const result = response?.result;
+      if (result) {
+        if (result.title) uploadTitle.value = result.title.slice(0, 100);
+        if (result.description) uploadDescription.value = result.description.slice(0, 5000);
+        if (result.category) {
+          const catId = Object.entries(CONFIG.YOUTUBE_CATEGORIES)
+            .find(([, name]) => name.toLowerCase() === result.category.toLowerCase())?.[0];
+          if (catId) uploadCategory.value = catId;
+        }
+        updateCharCounters();
+        updateAiGenerateButton();
+        if (aiGenerateStatus) aiGenerateStatus.textContent = 'Done!';
+      } else {
+        if (aiGenerateStatus) aiGenerateStatus.textContent = 'No result received';
+      }
+    } catch (err) {
+      if (aiGenerateStatus) aiGenerateStatus.textContent = 'Error: ' + err.message;
+    } finally {
+      aiMetaGenerating = false;
+      updateAiGenerateButton();
+    }
+  }
+
+  if (aiGenerateBtn) aiGenerateBtn.addEventListener('click', generateAiMetaFromForm);
+
   // --- Init segment extraction for trimming ---
 
   async function extractInitSegment(firstChunk) {
@@ -3457,6 +5215,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await loadDevices();
   initStyleTab();
+  await loadStylePrefs();
   updateNavButtons();
   cleanupOldRecordings();
 

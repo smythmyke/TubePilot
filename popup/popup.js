@@ -16,6 +16,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // --- View switching (Main ↔ Products) ---
+  const mainView = document.getElementById('main-view');
+  const productsView = document.getElementById('products-view');
+  const productsBtn = document.getElementById('products-btn');
+  const backBtn = document.getElementById('back-btn');
+
+  productsBtn.addEventListener('click', () => {
+    mainView.classList.add('hidden');
+    productsView.classList.remove('hidden');
+  });
+
+  backBtn.addEventListener('click', () => {
+    productsView.classList.add('hidden');
+    mainView.classList.remove('hidden');
+  });
+
   // --- Account Tab ---
   const loggedInEl = document.getElementById('logged-in');
   const loggedOutEl = document.getElementById('logged-out');
@@ -80,6 +96,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showLoggedIn(user, credits) {
     loggedInEl.classList.remove('hidden');
     loggedOutEl.classList.add('hidden');
+    signOutBtn.classList.remove('hidden');
     updateProductsAccess(true);
 
     if (user) {
@@ -121,6 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function showLoggedOut() {
     loggedInEl.classList.add('hidden');
     loggedOutEl.classList.remove('hidden');
+    signOutBtn.classList.add('hidden');
     updateProductsAccess(false);
     headerCredits.classList.add('hidden');
   }
@@ -292,7 +310,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!tab || !tab.url || !tab.url.match(/studio\.youtube\.com/)) {
         openPanelBtn.textContent = 'Navigate to YouTube Studio';
         setTimeout(() => {
-          openPanelBtn.textContent = 'Open Panel on This Page';
+          openPanelBtn.textContent = 'Side Panel';
           openPanelBtn.disabled = false;
         }, 2000);
         return;
@@ -301,7 +319,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!pageCheck || (!pageCheck.hasCreateButton && !pageCheck.isEditPage)) {
         openPanelBtn.textContent = 'No CREATE button found on this page';
         setTimeout(() => {
-          openPanelBtn.textContent = 'Open Panel on This Page';
+          openPanelBtn.textContent = 'Side Panel';
           openPanelBtn.disabled = false;
         }, 2000);
         return;
@@ -314,7 +332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           : 'Could not open panel';
         openPanelBtn.textContent = msg;
         setTimeout(() => {
-          openPanelBtn.textContent = 'Open Panel on This Page';
+          openPanelBtn.textContent = 'Side Panel';
           openPanelBtn.disabled = false;
         }, 2000);
       }
@@ -346,7 +364,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       openPanelBtn.textContent = 'Refresh this Studio tab and try again';
       setTimeout(() => {
-        openPanelBtn.textContent = 'Open Panel on This Page';
+        openPanelBtn.textContent = 'Side Panel';
         openPanelBtn.disabled = false;
       }, 3000);
     }

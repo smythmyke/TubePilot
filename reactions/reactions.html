@@ -12,7 +12,7 @@
   <div class="top-bar">
     <div class="top-bar-left">
       <img class="top-bar-logo" src="../icons/icon48.png" alt="TP">
-      <h1>TubePilot <span>Reactions</span></h1>
+      <h1>Tube<span>Pilot</span> Reactions</h1>
     </div>
     <div class="rec-controls">
       <div class="rec-dot hidden" id="rec-dot"></div>
@@ -26,6 +26,7 @@
       </button>
       <button class="btn btn-pause btn-sm" id="pause-btn" disabled>Pause</button>
       <button class="btn btn-stop btn-sm" id="stop-btn" disabled>Stop</button>
+      <button class="btn btn-sm btn-popout" id="popout-btn" disabled>Pop Out</button>
     </div>
   </div>
 
@@ -87,6 +88,10 @@
           <button class="btn btn-primary btn-sm" id="search-btn">Search</button>
         </div>
         <div class="search-status" id="search-status"></div>
+        <div class="screen-capture-row">
+          <button class="btn btn-screen-capture btn-sm" id="screen-capture-btn">&#x1F5B5; Capture Screen</button>
+          <button class="btn btn-sm btn-stop-capture hidden" id="stop-screen-capture-btn">&#x25A0; Stop Capture</button>
+        </div>
 
         <div class="now-playing hidden" id="now-playing">
           <h3>Now Playing</h3>
@@ -107,6 +112,35 @@
       <!-- ====== CAMERA TAB ====== -->
       <div class="sidebar-content panel-hidden" id="panel-camera">
         <div class="device-section">
+          <div class="toggle-row">
+            <label class="toggle-inline">
+              <input type="checkbox" id="audio-only-toggle">
+              <span>Audio only (no camera)</span>
+            </label>
+          </div>
+          <span class="style-hint" id="audio-only-hint">Record your voice over the video without webcam overlay</span>
+        </div>
+
+        <div class="device-section">
+          <h3>Microphone</h3>
+          <div class="form-row">
+            <label for="mic-select">Device</label>
+            <div class="device-select-row">
+              <select id="mic-select"><option value="">Loading...</option></select>
+              <button class="device-refresh-btn" id="refresh-devices-btn" title="Refresh devices">&#x21BB;</button>
+            </div>
+          </div>
+          <div class="mic-meter-row">
+            <label>Level</label>
+            <div class="mic-meter-track">
+              <div class="mic-meter-fill" id="mic-meter-fill"></div>
+            </div>
+            <span class="mic-meter-label" id="mic-meter-label">--</span>
+          </div>
+        </div>
+
+        <div id="cam-controls-section">
+        <div class="device-section">
           <h3>Live Preview</h3>
           <div class="device-preview">
             <video id="cam-preview" autoplay muted playsinline></video>
@@ -115,14 +149,13 @@
         </div>
 
         <div class="device-section">
-          <h3>Devices</h3>
+          <h3>Camera</h3>
           <div class="form-row">
-            <label for="camera-select">Camera</label>
-            <select id="camera-select"><option value="">Loading...</option></select>
-          </div>
-          <div class="form-row">
-            <label for="mic-select">Microphone</label>
-            <select id="mic-select"><option value="">Loading...</option></select>
+            <label for="camera-select">Device</label>
+            <div class="device-select-row">
+              <select id="camera-select"><option value="">Loading...</option></select>
+              <button class="device-refresh-btn" id="refresh-camera-btn" title="Reconnect camera">&#x21BB;</button>
+            </div>
           </div>
         </div>
 
@@ -133,6 +166,8 @@
             <span class="style-hint">Flip camera horizontally</span>
           </div>
         </div>
+
+        </div><!-- /cam-controls-section -->
 
         <div class="device-section">
           <h3>Auto-Captions</h3>
@@ -231,7 +266,26 @@
           </div>
         </div>
 
+        <div class="device-section">
+          <h3>Video Size</h3>
+          <div class="slider-row">
+            <input type="range" id="style-vid-size-slider" min="20" max="100" value="100" step="1">
+            <span class="slider-val" id="style-vid-size-value">100%</span>
+          </div>
+          <span class="style-hint">Shrink to make video a draggable panel</span>
+        </div>
+
         </div><!-- #pip-only-controls -->
+
+        <div id="sbs-only-controls" style="display:none">
+        <div class="device-section">
+          <h3>Split Ratio (Video)</h3>
+          <div class="slider-row">
+            <input type="range" id="sbs-split-slider" min="30" max="70" value="50" step="1">
+            <span class="slider-val" id="sbs-split-value">50%</span>
+          </div>
+        </div>
+        </div><!-- #sbs-only-controls -->
 
         <div class="device-section" id="bg-removal-section">
           <h3>Background Removal</h3>
@@ -257,6 +311,16 @@
               <input type="range" id="bg-blur-slider" min="0" max="100" value="50" step="1">
               <span class="slider-val" id="bg-blur-value">50</span>
             </div>
+            <div class="slider-row">
+              <label>Dilation</label>
+              <input type="range" id="bg-dilation-slider" min="0" max="10" value="10" step="1">
+              <span class="slider-val" id="bg-dilation-value">10px</span>
+            </div>
+            <div class="slider-row">
+              <label>Smoothing</label>
+              <input type="range" id="bg-mask-blur-slider" min="0" max="20" value="20" step="1">
+              <span class="slider-val" id="bg-mask-blur-value">20px</span>
+            </div>
           </div>
         </div>
       </div>
@@ -264,7 +328,7 @@
       <!-- Volume footer (always visible) -->
       <div class="sidebar-footer">
         <div class="slider-row">
-          <label>YouTube</label>
+          <label id="tab-volume-label">YouTube</label>
           <input type="range" id="tab-volume-slider" min="0" max="100" value="75" step="1">
           <span class="slider-val" id="tab-volume-value">75%</span>
         </div>
@@ -273,6 +337,88 @@
           <input type="range" id="mic-volume-slider" min="0" max="100" value="100" step="1">
           <span class="slider-val" id="mic-volume-value">100%</span>
           <button class="mute-btn" id="mic-mute-btn" title="Mute mic">&#x1F50A;</button>
+        </div>
+
+        <!-- Music volume (shown when music active) -->
+        <div class="slider-row music-row hidden" id="music-row">
+          <label>Music</label>
+          <input type="range" id="music-volume-slider" min="0" max="100" value="50" step="1">
+          <span class="slider-val" id="music-volume-value">50%</span>
+          <button class="mute-btn" id="music-mute-btn" title="Mute music">&#x1F50A;</button>
+          <button class="btn-stop-music" id="stop-music-btn" title="Stop music">&#x2715;</button>
+        </div>
+
+        <!-- Music capture button -->
+        <div class="music-capture-row" id="music-capture-row">
+          <button class="btn-music-capture" id="music-capture-btn">&#x1F3B5; Add Background Music</button>
+        </div>
+
+        <!-- Audio Dev Tools (collapsible) -->
+        <div class="audio-dev-panel">
+          <div class="audio-dev-header" id="audio-dev-toggle">
+            <span class="audio-dev-chevron" id="audio-dev-chevron">&#x25B6;</span>
+            <span>Audio Dev Tools</span>
+          </div>
+          <div class="audio-dev-body hidden" id="audio-dev-body">
+
+            <div class="audio-dev-stats" id="audio-dev-stats">
+              <span id="audio-dev-ctx-state">Ctx: --</span>
+              <span id="audio-dev-sample-rate">SR: --</span>
+              <span id="audio-dev-clip">Peak: --</span>
+            </div>
+
+            <div class="audio-dev-clip-bar">
+              <div class="audio-dev-clip-fill" id="audio-dev-clip-fill"></div>
+              <div class="audio-dev-clip-mark"></div>
+            </div>
+
+            <label class="toggle-inline audio-dev-row">
+              <input type="checkbox" id="audio-dev-bypass-compressor">
+              <span>Bypass Compressor</span>
+            </label>
+
+            <div class="audio-dev-section-label">Compressor</div>
+            <div class="slider-row">
+              <label>Threshold</label>
+              <input type="range" id="audio-dev-threshold" min="-60" max="0" value="-12" step="1">
+              <span class="slider-val" id="audio-dev-threshold-val">-12dB</span>
+            </div>
+            <div class="slider-row">
+              <label>Knee</label>
+              <input type="range" id="audio-dev-knee" min="0" max="40" value="10" step="1">
+              <span class="slider-val" id="audio-dev-knee-val">10dB</span>
+            </div>
+            <div class="slider-row">
+              <label>Ratio</label>
+              <input type="range" id="audio-dev-ratio" min="1" max="20" value="2" step="0.5">
+              <span class="slider-val" id="audio-dev-ratio-val">2:1</span>
+            </div>
+            <div class="slider-row">
+              <label>Attack</label>
+              <input type="range" id="audio-dev-attack" min="0" max="100" value="5" step="1">
+              <span class="slider-val" id="audio-dev-attack-val">5ms</span>
+            </div>
+            <div class="slider-row">
+              <label>Release</label>
+              <input type="range" id="audio-dev-release" min="10" max="1000" value="200" step="10">
+              <span class="slider-val" id="audio-dev-release-val">200ms</span>
+            </div>
+
+            <div class="audio-dev-section-label">Recording</div>
+            <div class="slider-row">
+              <label>Bitrate</label>
+              <select id="audio-dev-bitrate" class="audio-dev-select">
+                <option value="64000">64 kbps</option>
+                <option value="96000">96 kbps</option>
+                <option value="128000" selected>128 kbps</option>
+                <option value="192000">192 kbps</option>
+                <option value="256000">256 kbps</option>
+                <option value="320000">320 kbps</option>
+              </select>
+            </div>
+
+            <button class="btn btn-sm audio-dev-reset-btn" id="audio-dev-reset-btn">Reset Defaults</button>
+          </div>
         </div>
       </div>
     </div>
@@ -291,12 +437,6 @@
       <!-- Video preview -->
       <video id="output-video" controls class="output-video"></video>
       <div class="output-meta" id="output-meta"></div>
-
-      <div class="sync-link-row hidden" id="sync-link-row">
-        <span class="sync-label">Sync link:</span>
-        <input type="text" class="sync-link-input" id="sync-link-input" readonly>
-        <button class="btn btn-sm" id="sync-link-copy" title="Copy">Copy</button>
-      </div>
 
       <!-- Post-recording tools (Phase 8) -->
       <div class="post-tools" id="post-tools">
@@ -416,6 +556,13 @@
           <label for="upload-description">Description</label>
           <textarea id="upload-description" rows="4" maxlength="5000" placeholder="Video description"></textarea>
           <span class="char-count" id="upload-desc-count">0/5000</span>
+        </div>
+
+        <!-- AI Generate -->
+        <div class="form-row">
+          <button class="btn btn-sm btn-ai-generate" id="ai-generate-meta-btn" disabled>Generate with AI (1 credit)</button>
+          <span class="ai-generate-hint" id="ai-generate-hint">Enter at least 10 characters in title or description to enable</span>
+          <span class="ai-generate-status" id="ai-generate-status"></span>
         </div>
 
         <!-- Category + Visibility side by side -->

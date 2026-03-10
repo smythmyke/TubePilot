@@ -101,6 +101,8 @@ const RX_DEFAULTS = {
   pipCornerRadius: 12,
   pipMinSize: 10,
   pipMaxSize: 45,
+  vidMinSize: 20,
+  vidMaxSize: 100,
   resizeHandleSize: 14,
   tabVolume: 75,      // 0-100
   micVolume: 100,     // 0-100
