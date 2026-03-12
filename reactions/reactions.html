@@ -15,6 +15,14 @@
       <h1>Tube<span>Pilot</span> Reactions</h1>
     </div>
     <div class="rec-controls">
+      <select class="platform-select" id="platform-select" title="Recording format">
+        <option value="standard">Standard (16:9)</option>
+        <option value="yt-short">YouTube Short (9:16)</option>
+        <option value="ig-reel">Instagram Reel (9:16)</option>
+        <option value="tiktok">TikTok (9:16)</option>
+        <option value="x-twitter">X / Twitter (9:16)</option>
+        <option value="reddit">Reddit (9:16)</option>
+      </select>
       <div class="rec-dot hidden" id="rec-dot"></div>
       <span class="rec-timer" id="rec-timer">00:00:00</span>
       <label class="toggle-inline webcam-only-toggle" title="Record webcam only (copyright-safe)">
@@ -54,6 +62,7 @@
             <div class="dot"></div>
             REC
           </div>
+          <div class="platform-badge hidden" id="platform-badge"></div>
         </div>
       </div>
 
@@ -287,6 +296,15 @@
         </div>
         </div><!-- #sbs-only-controls -->
 
+        <div class="device-section hidden" id="portrait-bg-section">
+          <h3>Portrait Background</h3>
+          <div class="bg-mode-btns">
+            <button class="bg-mode-btn bg-mode-active" data-portrait-bg="blur">Blur</button>
+            <button class="bg-mode-btn" data-portrait-bg="black">Black</button>
+          </div>
+          <span class="style-hint">Fill above/below the video in portrait mode</span>
+        </div>
+
         <div class="device-section" id="bg-removal-section">
           <h3>Background Removal</h3>
           <div class="toggle-row">
@@ -337,6 +355,7 @@
           <input type="range" id="mic-volume-slider" min="0" max="100" value="100" step="1">
           <span class="slider-val" id="mic-volume-value">100%</span>
           <button class="mute-btn" id="mic-mute-btn" title="Mute mic">&#x1F50A;</button>
+          <button class="mute-btn" id="mic-monitor-btn" title="Monitor mic in headphones">&#x1F3A7;</button>
         </div>
 
         <!-- Music volume (shown when music active) -->
@@ -446,6 +465,7 @@
           <button class="post-tool-btn" data-tool="captions" title="Captions">Captions</button>
           <button class="post-tool-btn" data-tool="thumbnail" title="Thumbnail">Thumbnail</button>
           <button class="post-tool-btn" data-tool="ai-meta" title="AI Title & Description">AI Title</button>
+          <button class="post-tool-btn" data-tool="gif" title="Export as GIF">GIF</button>
         </div>
 
         <div class="timeline-container" id="timeline-container">
@@ -524,11 +544,42 @@
             <span class="tool-status" id="ai-meta-status"></span>
           </div>
         </div>
+
+        <!-- GIF panel -->
+        <div class="tool-panel hidden" id="tool-panel-gif">
+          <div class="tool-panel-row">
+            <label>Width: <select id="gif-width">
+              <option value="320">320px</option>
+              <option value="480" selected>480px</option>
+              <option value="640">640px</option>
+            </select></label>
+            <label>FPS: <select id="gif-fps">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="15">15</option>
+            </select></label>
+            <label>Max duration: <select id="gif-max-duration">
+              <option value="5">5s</option>
+              <option value="10" selected>10s</option>
+              <option value="15">15s</option>
+              <option value="30">30s</option>
+            </select></label>
+          </div>
+          <div class="tool-panel-row">
+            <button class="btn btn-sm btn-primary" id="gif-encode-btn">Generate GIF</button>
+            <span class="tool-status" id="gif-status"></span>
+          </div>
+          <div class="progress-bar hidden" id="gif-progress">
+            <div class="progress-fill" id="gif-progress-fill" style="width:0%"></div>
+            <span class="progress-text" id="gif-progress-text">0%</span>
+          </div>
+        </div>
       </div>
 
       <!-- Action buttons -->
       <div class="output-actions">
         <button class="btn btn-primary" id="download-btn">Download</button>
+        <button class="btn btn-gif" id="gif-export-btn">Export GIF</button>
         <button class="btn btn-upload" id="upload-toggle-btn">Upload to YouTube</button>
       </div>
 
@@ -624,6 +675,7 @@
   <!-- Hidden recording canvas -->
   <canvas id="recording-canvas" width="1920" height="1080" style="display:none;"></canvas>
 
+  <script src="../lib/gif/gif.js"></script>
   <script src="../config.js"></script>
   <script src="../services/reactions-state.js"></script>
   <script src="../services/queue-storage.js"></script>

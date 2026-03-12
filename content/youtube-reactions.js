@@ -12,6 +12,7 @@
   let active = false;
   let lastPlayerState = -1;
   let cleanupStyleEl = null;
+  let sentDimensions = false;
 
   // CSS that hides all YouTube UI so the captured stream shows only the video
   const CLEANUP_CSS = `
@@ -61,6 +62,20 @@
     return 1; // playing
   }
 
+  function sendVideoDimensions() {
+    if (!video || sentDimensions) return;
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      sentDimensions = true;
+      try {
+        chrome.runtime.sendMessage({
+          type: RX_MESSAGES.YT_VIDEO_DIMENSIONS,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight
+        }).catch(() => {});
+      } catch {}
+    }
+  }
+
   function startPolling() {
     if (pollInterval) return;
     pollInterval = setInterval(() => {
@@ -68,6 +83,7 @@
         findVideo();
         return;
       }
+      sendVideoDimensions();
       const state = derivePlayerState();
       try {
         chrome.runtime.sendMessage({
@@ -109,6 +125,7 @@
 
       case RX_MESSAGES.YT_ACTIVATE:
         active = true;
+        sentDimensions = false;
         injectCleanupCSS();
         findVideo();
         startPolling();
@@ -128,6 +145,7 @@
   document.addEventListener('yt-navigate-finish', () => {
     if (active) {
       injectCleanupCSS();
+      sentDimensions = false; // re-detect for new video
       setTimeout(() => findVideo(), 500);
     }
   });

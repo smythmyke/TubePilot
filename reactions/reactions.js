@@ -112,12 +112,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   const uploadStudioLink = document.getElementById('upload-studio-link');
   const uploadError = document.getElementById('upload-error');
 
+  // Platform format
+  const platformSelect = document.getElementById('platform-select');
+  const platformBadge = document.getElementById('platform-badge');
+
   // ============================================================
   // State
   // ============================================================
 
   let currentState = RX_STATES.IDLE;
   let currentView = RX_VIEWS.FINAL;
+  let currentPlatform = RX_PLATFORMS.STANDARD;
 
   // PiP position / size (absolute coordinates, null = compute default on first render)
   let pipX = null;
@@ -155,6 +160,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Z-order: which panel draws on top
   let topPanel = 'webcam';
+
+  // Portrait-native composition
+  let portraitBgMode = 'blur'; // 'blur' | 'black'
+  let sourceVideoWidth = 0;   // native video dimensions from content script
+  let sourceVideoHeight = 0;
+
+  // YouTube tab muting (for volume slider control)
+  let capturedYtTabId = null;
+
+  // Mic monitoring
+  let micMonitoring = false;
+  let micMonitorNode = null; // gain node routed to audioCtx.destination
+
+  // Crop box (DORMANT — portrait mode now uses native composition)
+  let cropBoxActive = false;
+  let cropX = null;   // canvas coordinates (null = compute default centered)
+  let cropY = null;
+  let cropW = 0;      // width in canvas coords (computed from height * 9/16)
+  let cropH = 0;      // height in canvas coords (full canvas height by default)
+  let cropDragging = false;
+  let cropDragOffsetX = 0;
+  let cropDragOffsetY = 0;
+  let cropResizing = false;
+  let cropResizeEdge = null;   // 'top' | 'bottom'
+  let cropHovered = false;
 
   // Streams
   let tabStream = null;
@@ -434,6 +464,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     nowPlaying = videoObj;
 
+    // Reset source dimensions (content script will re-detect for new video)
+    sourceVideoWidth = 0;
+    sourceVideoHeight = 0;
+
     // Reset player UI
     playerPlaying = false;
     playerCurrentTime = 0;
@@ -499,6 +533,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           videoId: videoObj.videoId
         });
         if (!response?.success) throw new Error(response?.error || 'Failed to register YouTube tab');
+
+        // 5b. Mute YouTube tab — audio is routed through our audio graph instead
+        capturedYtTabId = ytTab.id;
+        chrome.tabs.update(capturedYtTabId, { muted: true }).catch(() => {});
 
         // 6. Set up video element
         tabVideo.srcObject = tabStream;
@@ -598,6 +636,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function handleStreamEnded() {
     tabStream = null;
+    capturedYtTabId = null;
     isFirstVideoLoad = true;
     previewPlaceholder.classList.remove('hidden');
     playPauseBtn.disabled = true;
@@ -1040,6 +1079,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
       camPreview.srcObject = camPreviewStream;
       camPlaceholder.classList.add('hidden');
+
+      // Also feed the canvas video element so PiP shows before recording
+      if (!camStream) {
+        camVideo.srcObject = camPreviewStream;
+        await camVideo.play();
+      }
     } catch (e) {
       console.warn('[TubePilot RX] Camera preview failed:', e.message);
     }
@@ -1599,6 +1644,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const recView = audioOnlyMode ? RX_VIEWS.VIDEO : recordingView;
       const prevView = audioOnlyMode ? RX_VIEWS.VIDEO : currentView;
+
+      // Both portrait-native and landscape use the same pattern —
+      // portrait-specific rendering is handled inside drawCanvas() → drawPortraitScene()
       drawCanvas(recordingCtx, recordingCanvas, recView, false);
       drawCanvas(previewCtx, previewCanvas, prevView, true);
 
@@ -1634,7 +1682,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } else {
       // FINAL — video + PiP or side-by-side
-      if (currentLayout === RX_LAYOUTS.SIDE_BY_SIDE) {
+      if (isPortraitMode()) {
+        drawPortraitScene(ctx, canvas, view, isPreviewCanvas);
+      } else if (currentLayout === RX_LAYOUTS.SIDE_BY_SIDE) {
         drawSideBySide(ctx, canvas, isPreviewCanvas);
       } else {
         // Black background (visible when panels are resized smaller than canvas)
@@ -1664,6 +1714,59 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   }
 
+  function drawCropOverlay() {
+    if (!cropBoxActive || cropX === null) return;
+    const ctx = previewCtx;
+    const w = previewCanvas.width;
+    const h = previewCanvas.height;
+
+    // Dim areas outside the crop box
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    // Left
+    ctx.fillRect(0, 0, cropX, h);
+    // Right
+    ctx.fillRect(cropX + cropW, 0, w - cropX - cropW, h);
+    // Top (between left and right)
+    ctx.fillRect(cropX, 0, cropW, cropY);
+    // Bottom (between left and right)
+    ctx.fillRect(cropX, cropY + cropH, cropW, h - cropY - cropH);
+
+    // Crop box border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(cropX, cropY, cropW, cropH);
+
+    // Corner handles
+    const hs = 10; // handle size
+    ctx.fillStyle = '#fff';
+    // Top-left
+    ctx.fillRect(cropX - hs / 2, cropY - hs / 2, hs, hs);
+    // Top-right
+    ctx.fillRect(cropX + cropW - hs / 2, cropY - hs / 2, hs, hs);
+    // Bottom-left
+    ctx.fillRect(cropX - hs / 2, cropY + cropH - hs / 2, hs, hs);
+    // Bottom-right
+    ctx.fillRect(cropX + cropW - hs / 2, cropY + cropH - hs / 2, hs, hs);
+
+    // Rule of thirds guides (subtle)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i <= 2; i++) {
+      // Vertical
+      const vx = cropX + (cropW * i / 3);
+      ctx.beginPath();
+      ctx.moveTo(vx, cropY);
+      ctx.lineTo(vx, cropY + cropH);
+      ctx.stroke();
+      // Horizontal
+      const hy = cropY + (cropH * i / 3);
+      ctx.beginPath();
+      ctx.moveTo(cropX, hy);
+      ctx.lineTo(cropX + cropW, hy);
+      ctx.stroke();
+    }
+  }
+
   function drawVideoFill(ctx, video, w, h) {
     // Cover-fit the video into the canvas
     const vw = video.videoWidth || w;
@@ -1674,6 +1777,70 @@ document.addEventListener('DOMContentLoaded', async () => {
     const sx = (w - sw) / 2;
     const sy = (h - sh) / 2;
     ctx.drawImage(video, sx, sy, sw, sh);
+  }
+
+  function isSourcePortrait() {
+    return sourceVideoWidth > 0 && sourceVideoHeight > 0 && sourceVideoHeight > sourceVideoWidth;
+  }
+
+  function drawPortraitScene(ctx, canvas, view, isPreviewCanvas) {
+    const frame = getPortraitFrame(canvas);
+    const isLetterboxed = frame.w < canvas.width;
+    const sourceIsPortrait = isSourcePortrait();
+
+    // Letterbox bars (preview only)
+    if (isLetterboxed) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Clip to portrait frame
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(frame.x, frame.y, frame.w, frame.h);
+    ctx.clip();
+
+    if (sourceIsPortrait && tabVideo.readyState >= 2) {
+      // Portrait source (e.g. YouTube Short) — crop center strip from pillarboxed capture
+      // The capture is 16:9 with the portrait video centered. Extract the center 9:16 strip.
+      const capW = tabVideo.videoWidth || canvas.width;
+      const capH = tabVideo.videoHeight || canvas.height;
+      const stripW = Math.round(capH * (9 / 16)); // width of actual content in capture
+      const stripX = Math.round((capW - stripW) / 2);
+      // Draw the cropped strip to fill the entire portrait frame
+      ctx.drawImage(tabVideo, stripX, 0, stripW, capH, frame.x, frame.y, frame.w, frame.h);
+    } else {
+      // Landscape source — blur/black background + centered 16:9 video
+
+      // Layer 1: Background fill
+      if (portraitBgMode === 'blur' && tabVideo.readyState >= 2) {
+        ctx.save();
+        ctx.translate(frame.x, frame.y);
+        ctx.filter = 'blur(20px)';
+        drawVideoFill(ctx, tabVideo, frame.w, frame.h);
+        ctx.filter = 'none';
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#000';
+        ctx.fillRect(frame.x, frame.y, frame.w, frame.h);
+      }
+
+      // Layer 2: Sharp 16:9 video centered vertically
+      if (tabVideo.readyState >= 2) {
+        const videoW = frame.w;
+        const videoH = Math.round(videoW * (9 / 16));
+        const videoX = frame.x;
+        const videoY = frame.y + Math.round((frame.h - videoH) / 2);
+        ctx.drawImage(tabVideo, videoX, videoY, videoW, videoH);
+      }
+    }
+
+    ctx.restore(); // remove clip
+
+    // Layer 3: Webcam PiP
+    if (camVideo.srcObject && camVideo.readyState >= 2) {
+      drawPip(ctx, canvas, isPreviewCanvas);
+    }
   }
 
   function drawVideoPanel(ctx, canvas, isPreviewCanvas) {
@@ -1947,7 +2114,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (pipShape === RX_PIP_SHAPES.CIRCLE) {
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     } else if (pipShape === RX_PIP_SHAPES.ROUNDED) {
-      roundedRectPath(ctx, x, y, w, h, pipCornerRadius);
+      const r = Math.round(Math.min(w, h) * 0.08);
+      roundedRectPath(ctx, x, y, w, h, r);
       return; // roundedRectPath already calls beginPath
     } else {
       ctx.rect(x, y, w, h);
@@ -1988,7 +2156,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  function isPortraitMode() {
+    return currentPlatform.height > currentPlatform.width;
+  }
+
+  function getPortraitFrame(canvas) {
+    const frameH = canvas.height;
+    const frameW = Math.round(frameH * (9 / 16));
+    const frameX = Math.round((canvas.width - frameW) / 2);
+    return { x: frameX, y: 0, w: frameW, h: frameH };
+  }
+
   function calcPipRect(canvas) {
+    if (isPortraitMode()) {
+      const frame = getPortraitFrame(canvas);
+      const pipW = Math.round(frame.w * (pipSizePercent / 100));
+      const pipH = pipShape === RX_PIP_SHAPES.CIRCLE ? pipW : Math.round(pipW * (9 / 16));
+      if (pipX === null || pipY === null) {
+        const margin = 20;
+        pipX = frame.w - pipW - margin;
+        pipY = frame.h - pipH - margin;
+      }
+      const cx = Math.max(0, Math.min(pipX, frame.w - pipW));
+      const cy = Math.max(0, Math.min(pipY, frame.h - pipH));
+      return { x: frame.x + cx, y: frame.y + cy, w: pipW, h: pipH };
+    }
+
+    // Landscape: unchanged
     const pipW = Math.round(canvas.width * (pipSizePercent / 100));
     const pipH = pipShape === RX_PIP_SHAPES.CIRCLE
       ? pipW  // 1:1 for circle
@@ -2045,7 +2239,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function snapPipToCorner(corner) {
     const margin = 20;
-    const pipW = Math.round(previewCanvas.width * (pipSizePercent / 100));
+    let refW, refH;
+    if (isPortraitMode()) {
+      const frame = getPortraitFrame(previewCanvas);
+      refW = frame.w;
+      refH = frame.h;
+    } else {
+      refW = previewCanvas.width;
+      refH = previewCanvas.height;
+    }
+    const pipW = Math.round(refW * (pipSizePercent / 100));
     const pipH = pipShape === RX_PIP_SHAPES.CIRCLE
       ? pipW
       : Math.round(pipW * (9 / 16));
@@ -2054,12 +2257,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       case 'top-left':
         pipX = margin; pipY = margin; break;
       case 'top-right':
-        pipX = previewCanvas.width - pipW - margin; pipY = margin; break;
+        pipX = refW - pipW - margin; pipY = margin; break;
       case 'bottom-left':
-        pipX = margin; pipY = previewCanvas.height - pipH - margin; break;
+        pipX = margin; pipY = refH - pipH - margin; break;
       case 'bottom-right':
       default:
-        pipX = previewCanvas.width - pipW - margin; pipY = previewCanvas.height - pipH - margin; break;
+        pipX = refW - pipW - margin; pipY = refH - pipH - margin; break;
     }
   }
 
@@ -2177,13 +2380,97 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ============================================================
-  // (c3) Mouse event system (drag / resize)
+  // (c3) Crop box hit testing
+  // ============================================================
+
+  function hitTestCropHandle(cx, cy) {
+    if (!cropBoxActive || cropX === null) return null;
+    const hs = 14; // handle hit area (slightly larger than visual)
+    const corners = {
+      tl: { x: cropX, y: cropY },
+      tr: { x: cropX + cropW, y: cropY },
+      bl: { x: cropX, y: cropY + cropH },
+      br: { x: cropX + cropW, y: cropY + cropH }
+    };
+    for (const [key, pt] of Object.entries(corners)) {
+      if (cx >= pt.x - hs && cx <= pt.x + hs && cy >= pt.y - hs && cy <= pt.y + hs) return key;
+    }
+    return null;
+  }
+
+  function hitTestCropBox(cx, cy) {
+    if (!cropBoxActive || cropX === null) return false;
+    return cx >= cropX && cx <= cropX + cropW && cy >= cropY && cy <= cropY + cropH;
+  }
+
+  function resizeCropFromCorner(cx, cy, corner) {
+    // Resize locked to 9:16 aspect ratio
+    // Use distance from the opposite corner to determine new size
+    const minH = 200; // minimum crop height
+    const maxH = previewCanvas.height;
+    let newH, newW, newX, newY;
+
+    if (corner === 'br' || corner === 'tr') {
+      // Right side drag — measure from left edge
+      newW = Math.max(Math.round(minH * 9 / 16), cx - cropX);
+      newH = Math.round(newW * 16 / 9);
+      newX = cropX;
+    } else {
+      // Left side drag — measure from right edge
+      newW = Math.max(Math.round(minH * 9 / 16), (cropX + cropW) - cx);
+      newH = Math.round(newW * 16 / 9);
+      newX = cropX + cropW - newW;
+    }
+
+    if (corner === 'bl' || corner === 'br') {
+      newY = cropY; // anchor top
+    } else {
+      newY = cropY + cropH - newH; // anchor bottom
+    }
+
+    // Clamp
+    newH = Math.min(newH, maxH);
+    newW = Math.round(newH * 9 / 16);
+    if (newX < 0) { newX = 0; }
+    if (newX + newW > previewCanvas.width) { newX = previewCanvas.width - newW; }
+    if (newY < 0) { newY = 0; }
+    if (newY + newH > previewCanvas.height) { newY = previewCanvas.height - newH; newH = previewCanvas.height - newY; newW = Math.round(newH * 9 / 16); }
+
+    cropX = newX;
+    cropY = newY;
+    cropW = newW;
+    cropH = newH;
+  }
+
+  // ============================================================
+  // (c4) Mouse event system (drag / resize)
   // ============================================================
 
   previewCanvas.addEventListener('mousedown', (e) => {
     if (currentView !== RX_VIEWS.FINAL) return;
-    if (currentLayout !== RX_LAYOUTS.PIP) return;
+
     const { x, y } = canvasCoordsFromEvent(e, previewCanvas);
+
+    // Crop box interaction (takes priority)
+    if (cropBoxActive) {
+      const cropHandle = hitTestCropHandle(x, y);
+      if (cropHandle) {
+        cropResizing = true;
+        cropResizeEdge = cropHandle;
+        e.preventDefault();
+        return;
+      }
+      if (hitTestCropBox(x, y)) {
+        cropDragging = true;
+        cropDragOffsetX = x - cropX;
+        cropDragOffsetY = y - cropY;
+        previewCanvas.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (currentLayout !== RX_LAYOUTS.PIP) return;
     const resizeCursors = { tl: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize', br: 'nwse-resize' };
 
     // Check resize handles for BOTH panels (top panel first)
@@ -2235,7 +2522,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         pipSelected = true;
         vidSelected = false;
         pipDragging = true;
-        pipDragOffsetX = x - pr.x;
+        pipDragOffsetX = x - pr.x;  // canvas-absolute offset
         pipDragOffsetY = y - pr.y;
         topPanel = 'webcam';
         previewCanvas.style.cursor = 'grabbing';
@@ -2267,13 +2554,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (currentView !== RX_VIEWS.FINAL) return;
     const { x, y } = canvasCoordsFromEvent(e, previewCanvas);
 
+    // Crop box drag/resize
+    if (cropDragging) {
+      cropX = Math.max(0, Math.min(x - cropDragOffsetX, previewCanvas.width - cropW));
+      cropY = Math.max(0, Math.min(y - cropDragOffsetY, previewCanvas.height - cropH));
+      return;
+    }
+    if (cropResizing) {
+      resizeCropFromCorner(x, y, cropResizeEdge);
+      return;
+    }
+
+    // Crop box hover cursors
+    if (cropBoxActive) {
+      const cropHandle = hitTestCropHandle(x, y);
+      if (cropHandle) {
+        const cursors = { tl: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize', br: 'nwse-resize' };
+        previewCanvas.style.cursor = cursors[cropHandle];
+        return;
+      }
+      if (hitTestCropBox(x, y)) {
+        previewCanvas.style.cursor = 'grab';
+        cropHovered = true;
+        // Don't return — still allow PiP hover inside crop box
+      } else {
+        cropHovered = false;
+      }
+    }
+
     // Active drag/resize — PiP
     if (pipDragging) {
-      pipX = x - pipDragOffsetX;
-      pipY = y - pipDragOffsetY;
-      const pr = calcPipRect(previewCanvas);
-      pipX = pr.x;
-      pipY = pr.y;
+      if (isPortraitMode()) {
+        const frame = getPortraitFrame(previewCanvas);
+        pipX = (x - pipDragOffsetX) - frame.x;
+        pipY = (y - pipDragOffsetY) - frame.y;
+        const pr = calcPipRect(previewCanvas);
+        pipX = pr.x - frame.x;
+        pipY = pr.y - frame.y;
+      } else {
+        pipX = x - pipDragOffsetX;
+        pipY = y - pipDragOffsetY;
+        const pr = calcPipRect(previewCanvas);
+        pipX = pr.x;
+        pipY = pr.y;
+      }
       return;
     }
     if (pipResizing) {
@@ -2371,13 +2695,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (pipDragging || pipResizing || vidDragging || vidResizing) {
       clearActivePreset();
     }
+    cropDragging = false;
+    cropResizing = false;
+    cropResizeEdge = null;
     pipDragging = false;
     pipResizing = false;
     pipResizeCorner = null;
     vidDragging = false;
     vidResizing = false;
     vidResizeCorner = null;
-    if (pipHovered || vidHovered) {
+    if (cropHovered || pipHovered || vidHovered) {
       previewCanvas.style.cursor = 'grab';
     } else {
       previewCanvas.style.cursor = 'default';
@@ -2385,6 +2712,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   previewCanvas.addEventListener('mouseleave', () => {
+    cropDragging = false;
+    cropResizing = false;
+    cropResizeEdge = null;
+    cropHovered = false;
     pipDragging = false;
     pipResizing = false;
     pipResizeCorner = null;
@@ -2399,7 +2730,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function resizePipFromCorner(mx, my, canvas) {
     const pr = calcPipRect(canvas);
     const minPct = RX_DEFAULTS.pipMinSize;
-    const maxPct = RX_DEFAULTS.pipMaxSize;
+    const maxPct = isPortraitMode() ? RX_DEFAULTS.pipMaxSizePortrait : RX_DEFAULTS.pipMaxSize;
+    const refW = isPortraitMode() ? getPortraitFrame(canvas).w : canvas.width;
 
     // Anchor is opposite corner
     let anchorX, anchorY;
@@ -2412,25 +2744,39 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Compute new width from mouse distance to anchor
     const dx = Math.abs(mx - anchorX);
-    let newPct = (dx / canvas.width) * 100;
+    let newPct = (dx / refW) * 100;
     newPct = Math.max(minPct, Math.min(maxPct, newPct));
 
     pipSizePercent = Math.round(newPct);
 
     // Recompute pip dimensions
-    const newW = Math.round(canvas.width * (pipSizePercent / 100));
+    const newW = Math.round(refW * (pipSizePercent / 100));
     const newH = pipShape === RX_PIP_SHAPES.CIRCLE ? newW : Math.round(newW * (9 / 16));
 
-    // Position from anchor
-    if (pipResizeCorner === 'tl' || pipResizeCorner === 'bl') {
-      pipX = anchorX - newW;
+    // Position from anchor (frame-relative for portrait, absolute for landscape)
+    if (isPortraitMode()) {
+      const frame = getPortraitFrame(canvas);
+      if (pipResizeCorner === 'tl' || pipResizeCorner === 'bl') {
+        pipX = (anchorX - newW) - frame.x;
+      } else {
+        pipX = anchorX - frame.x;
+      }
+      if (pipResizeCorner === 'tl' || pipResizeCorner === 'tr') {
+        pipY = (anchorY - newH) - frame.y;
+      } else {
+        pipY = anchorY - frame.y;
+      }
     } else {
-      pipX = anchorX;
-    }
-    if (pipResizeCorner === 'tl' || pipResizeCorner === 'tr') {
-      pipY = anchorY - newH;
-    } else {
-      pipY = anchorY;
+      if (pipResizeCorner === 'tl' || pipResizeCorner === 'bl') {
+        pipX = anchorX - newW;
+      } else {
+        pipX = anchorX;
+      }
+      if (pipResizeCorner === 'tl' || pipResizeCorner === 'tr') {
+        pipY = anchorY - newH;
+      } else {
+        pipY = anchorY;
+      }
     }
 
     // Sync size slider
@@ -2446,6 +2792,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function setupAudioMixing() {
     console.log('[AUDIO DEBUG] setupAudioMixing() called');
+    // Clean up mic monitor before closing context
+    if (micMonitorNode) { try { micMonitorNode.disconnect(); } catch {} micMonitorNode = null; }
     if (audioCtx) {
       console.log('[AUDIO DEBUG]   closing previous AudioContext (state was:', audioCtx.state, ')');
       audioCtx.close().catch(() => {});
@@ -2487,7 +2835,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       tabGain.gain.value = parseInt(tabVolumeSlider.value) / 100;
       tabSource.connect(tabGain);
       tabGain.connect(audioCompressor);
-      console.log('[AUDIO DEBUG]   ✓ tab audio connected to graph, gain:', tabGain.gain.value);
+      tabGain.connect(audioCtx.destination); // live monitoring (tab is muted, audio comes through graph)
+      console.log('[AUDIO DEBUG]   ✓ tab audio connected to graph + speakers, gain:', tabGain.gain.value);
     } else {
       console.warn('[AUDIO DEBUG]   ⚠ NO tab audio tracks — tab audio will be silent');
     }
@@ -2763,6 +3112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       savedMicGain = val;
     } else {
       if (micGain) micGain.gain.value = val;
+      if (micMonitorNode) micMonitorNode.gain.value = val;
     }
   });
 
@@ -2771,17 +3121,45 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (micMuted) {
       savedMicGain = micGain ? micGain.gain.value : parseInt(micVolumeSlider.value) / 100;
       if (micGain) micGain.gain.value = 0;
+      if (micMonitorNode) micMonitorNode.gain.value = 0;
       micMuteBtn.classList.add('muted');
       micMuteBtn.innerHTML = '&#x1F507;'; // muted speaker
       micMuteBtn.title = 'Unmute mic';
     } else {
       if (micGain) micGain.gain.value = savedMicGain;
+      if (micMonitorNode) micMonitorNode.gain.value = savedMicGain;
       micMuteBtn.classList.remove('muted');
       micMuteBtn.innerHTML = '&#x1F50A;'; // speaker with sound
       micMuteBtn.title = 'Mute mic';
     }
     syncPipState();
   });
+
+  // Mic monitor toggle (hear yourself in headphones)
+  const micMonitorBtn = document.getElementById('mic-monitor-btn');
+  if (micMonitorBtn) {
+    micMonitorBtn.addEventListener('click', () => {
+      micMonitoring = !micMonitoring;
+      if (micMonitoring) {
+        // Route mic through a separate gain node to speakers
+        if (audioCtx && micSourceNode) {
+          micMonitorNode = audioCtx.createGain();
+          micMonitorNode.gain.value = micMuted ? 0 : (micGain ? micGain.gain.value : parseInt(micVolumeSlider.value) / 100);
+          micSourceNode.connect(micMonitorNode);
+          micMonitorNode.connect(audioCtx.destination);
+        }
+        micMonitorBtn.classList.add('monitoring');
+        micMonitorBtn.title = 'Stop mic monitoring';
+      } else {
+        if (micMonitorNode) {
+          try { micMonitorNode.disconnect(); } catch {}
+          micMonitorNode = null;
+        }
+        micMonitorBtn.classList.remove('monitoring');
+        micMonitorBtn.title = 'Monitor mic in headphones';
+      }
+    });
+  }
 
   // Music volume / mute / capture / stop
   musicVolumeSlider.addEventListener('input', () => {
@@ -3079,9 +3457,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     console.log('[AUDIO DEBUG]   composedStream tracks — video:', composedStream.getVideoTracks().length, ', audio:', composedStream.getAudioTracks().length, ', mimeType:', mimeType);
 
+    const videoBitrate = isPortraitMode() ? RX_DEFAULTS.videoBitratePortrait : RX_DEFAULTS.videoBitrate;
     mediaRecorder = new MediaRecorder(composedStream, {
       mimeType,
-      videoBitsPerSecond: RX_DEFAULTS.videoBitrate,
+      videoBitsPerSecond: videoBitrate,
       audioBitsPerSecond: audioDevBitrate
     });
 
@@ -3178,10 +3557,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Capture thumbnail from recording canvas
     try {
       const thumbCanvas = document.createElement('canvas');
-      thumbCanvas.width = 320;
-      thumbCanvas.height = 180;
+      const isPortraitRec = recordingCanvas.height > recordingCanvas.width;
+      thumbCanvas.width = isPortraitRec ? 180 : 320;
+      thumbCanvas.height = isPortraitRec ? 320 : 180;
       const thumbCtx = thumbCanvas.getContext('2d');
-      thumbCtx.drawImage(recordingCanvas, 0, 0, 320, 180);
+      thumbCtx.drawImage(recordingCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
       lastRecordingThumbnail = thumbCanvas.toDataURL('image/jpeg', 0.8);
     } catch (err) {
       console.warn('[TubePilot RX] Thumbnail capture failed:', err.message);
@@ -3362,6 +3742,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   function setState(state) {
     currentState = state;
 
+    // Lock platform dropdown during recording
+    platformSelect.disabled = (state === RX_STATES.RECORDING || state === RX_STATES.PAUSED);
+
     recIndicator.classList.toggle('hidden', state !== RX_STATES.RECORDING);
     recDot.classList.toggle('hidden', state !== RX_STATES.RECORDING);
 
@@ -3421,10 +3804,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   function startTimer() {
     timerPaused = false;
     if (timerInterval) return;
+    const limit = currentPlatform.timeLimit;
+    timerSeconds = 0;
     timerInterval = setInterval(() => {
       if (!timerPaused) {
         timerSeconds++;
-        const timeStr = formatRecTime(timerSeconds);
+        let timeStr;
+        if (limit > 0) {
+          const remaining = limit - timerSeconds;
+          timeStr = formatCountdown(remaining, limit);
+          // Warning flash at 10 seconds remaining
+          if (remaining <= 10 && remaining > 0) {
+            recTimer.classList.add('timer-warning');
+          }
+          // Auto-stop at limit
+          if (remaining <= 0) {
+            stopBtn.click();
+            return;
+          }
+        } else {
+          timeStr = formatRecTime(timerSeconds);
+        }
         recTimer.textContent = timeStr;
         if (pipMiniTimerEl) pipMiniTimerEl.textContent = timeStr;
       }
@@ -3437,8 +3837,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     clearInterval(timerInterval);
     timerInterval = null;
     timerSeconds = 0;
-    recTimer.textContent = '00:00:00';
     timerPaused = false;
+    recTimer.classList.remove('timer-warning');
+    if (currentPlatform.timeLimit > 0) {
+      recTimer.textContent = formatCountdown(currentPlatform.timeLimit, currentPlatform.timeLimit);
+      recTimer.classList.add('countdown');
+    } else {
+      recTimer.textContent = '00:00:00';
+      recTimer.classList.remove('countdown');
+    }
   }
 
   function formatRecTime(totalSeconds) {
@@ -3447,6 +3854,162 @@ document.addEventListener('DOMContentLoaded', async () => {
     const s = totalSeconds % 60;
     return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
   }
+
+  function formatCountdown(remaining, limit) {
+    const elapsed = limit - remaining;
+    const eM = Math.floor(elapsed / 60);
+    const eS = elapsed % 60;
+    const lM = Math.floor(limit / 60);
+    const lS = limit % 60;
+    return `${eM}:${String(eS).padStart(2, '0')} / ${lM}:${String(lS).padStart(2, '0')}`;
+  }
+
+  // ============================================================
+  // Platform Format
+  // ============================================================
+
+  function applyPlatformFormat(platform) {
+    currentPlatform = platform;
+    const isPortrait = platform.height > platform.width;
+
+    // Preview canvas always stays 1920x1080
+    previewCanvas.width = RX_DEFAULTS.canvasWidth;
+    previewCanvas.height = RX_DEFAULTS.canvasHeight;
+
+    // Recording canvas: portrait for short-form, landscape for standard
+    recordingCanvas.width = platform.width;
+    recordingCanvas.height = platform.height;
+
+    // Portrait-native composition (no crop box)
+    if (isPortrait) {
+      cropBoxActive = false;
+      cropX = null;
+      cropY = null;
+
+      // Force PiP layout — disable side-by-side and reactor-over
+      if (currentLayout === RX_LAYOUTS.SIDE_BY_SIDE) {
+        applyPreset(RX_PRESETS.PIP_BR);
+      } else if (activePreset === RX_PRESETS.REACTOR_OVER) {
+        applyPreset(RX_PRESETS.PIP_BR);
+      }
+      disablePortraitBlockedPresets(true);
+
+      // Reset PiP to default position in new frame
+      pipX = null;
+      pipY = null;
+
+      // Show portrait bg toggle
+      const portraitBgSection = document.getElementById('portrait-bg-section');
+      if (portraitBgSection) portraitBgSection.classList.remove('hidden');
+
+      // Expand PiP size slider range for portrait
+      const pipSlider = document.getElementById('style-pip-size-slider');
+      if (pipSlider) pipSlider.max = RX_DEFAULTS.pipMaxSizePortrait;
+    } else {
+      cropBoxActive = false;
+      cropX = null;
+      cropY = null;
+      pipX = null;
+      pipY = null;
+      disablePortraitBlockedPresets(false);
+
+      const portraitBgSection = document.getElementById('portrait-bg-section');
+      if (portraitBgSection) portraitBgSection.classList.add('hidden');
+
+      // Restore PiP size slider range for landscape
+      const pipSlider = document.getElementById('style-pip-size-slider');
+      if (pipSlider) {
+        pipSlider.max = RX_DEFAULTS.pipMaxSize;
+        if (pipSizePercent > RX_DEFAULTS.pipMaxSize) {
+          pipSizePercent = RX_DEFAULTS.pipMaxSize;
+          pipSlider.value = pipSizePercent;
+          const sizeValue = document.getElementById('style-pip-size-value');
+          if (sizeValue) sizeValue.textContent = pipSizePercent + '%';
+        }
+      }
+    }
+
+    // Update badge
+    if (platform.badge) {
+      platformBadge.textContent = platform.badge;
+      platformBadge.style.backgroundColor = platform.badgeColor;
+      platformBadge.classList.remove('hidden');
+    } else {
+      platformBadge.classList.add('hidden');
+    }
+
+    // Update timer display for countdown mode
+    if (platform.timeLimit > 0) {
+      recTimer.textContent = formatCountdown(platform.timeLimit, platform.timeLimit);
+      recTimer.classList.add('countdown');
+    } else {
+      recTimer.textContent = '00:00:00';
+      recTimer.classList.remove('countdown', 'timer-warning');
+    }
+
+    // Persist to session storage
+    chrome.storage.local.set({ [RX_STORAGE_KEYS.PLATFORM_FORMAT]: platform.id });
+  }
+
+  function disablePortraitBlockedPresets(disable) {
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      const preset = btn.dataset.preset;
+      if (preset === 'side-by-side' || preset === 'reactor-over') {
+        btn.disabled = disable;
+        btn.style.opacity = disable ? '0.3' : '';
+        btn.style.pointerEvents = disable ? 'none' : '';
+      }
+    });
+  }
+
+  // Dropdown change handler
+  platformSelect.addEventListener('change', () => {
+    const selected = Object.values(RX_PLATFORMS).find(p => p.id === platformSelect.value);
+    if (selected) applyPlatformFormat(selected);
+  });
+
+  // Restore session platform on load
+  chrome.storage.local.get(RX_STORAGE_KEYS.PLATFORM_FORMAT, (result) => {
+    const savedId = result[RX_STORAGE_KEYS.PLATFORM_FORMAT];
+    if (savedId && savedId !== 'standard') {
+      const platform = Object.values(RX_PLATFORMS).find(p => p.id === savedId);
+      if (platform) {
+        platformSelect.value = platform.id;
+        applyPlatformFormat(platform);
+      }
+    }
+  });
+
+  // Reset to Standard on logout (token removal)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes['tubepilot_token'] && !changes['tubepilot_token'].newValue) {
+      platformSelect.value = 'standard';
+      applyPlatformFormat(RX_PLATFORMS.STANDARD);
+    }
+  });
+
+  // ============================================================
+  // Portrait Background Toggle
+  // ============================================================
+
+  document.querySelectorAll('.bg-mode-btn[data-portrait-bg]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.bg-mode-btn[data-portrait-bg]').forEach(b => b.classList.remove('bg-mode-active'));
+      btn.classList.add('bg-mode-active');
+      portraitBgMode = btn.dataset.portraitBg;
+      chrome.storage.local.set({ tubepilot_rx_portrait_bg: portraitBgMode });
+    });
+  });
+
+  // Restore portrait bg mode on load
+  chrome.storage.local.get('tubepilot_rx_portrait_bg', (result) => {
+    if (result.tubepilot_rx_portrait_bg) {
+      portraitBgMode = result.tubepilot_rx_portrait_bg;
+      document.querySelectorAll('.bg-mode-btn[data-portrait-bg]').forEach(b => {
+        b.classList.toggle('bg-mode-active', b.dataset.portraitBg === portraitBgMode);
+      });
+    }
+  });
 
   // ============================================================
   // (g) Output & Upload
@@ -3469,7 +4032,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     uploadBtn.disabled = true;
     uploadProgressFill.style.width = '0%';
     uploadProgressText.textContent = '0%';
-    uploadToggleBtn.textContent = 'Upload to YouTube';
+
+    // Platform-specific output actions
+    if (currentPlatform.upload === 'youtube-short') {
+      uploadToggleBtn.textContent = 'Upload as YouTube Short';
+      uploadToggleBtn.classList.remove('hidden');
+    } else if (currentPlatform.upload === 'download') {
+      uploadToggleBtn.textContent = 'Download for ' + currentPlatform.label;
+      uploadToggleBtn.classList.add('hidden');
+    } else {
+      uploadToggleBtn.textContent = 'Upload to YouTube';
+      uploadToggleBtn.classList.remove('hidden');
+    }
 
     // Auto-populate title
     if (nowPlaying && nowPlaying.title) {
@@ -3478,8 +4052,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       uploadTitle.value = 'Reaction ' + new Date().toLocaleDateString();
     }
 
-    // Sync link
-    uploadDescription.value = '';
+    // Auto-append #Shorts for YouTube Shorts
+    if (currentPlatform.id === 'yt-short') {
+      uploadDescription.value = '#Shorts';
+    } else {
+      uploadDescription.value = '';
+    }
     updateCharCounters();
 
     outputSection.classList.remove('hidden');
@@ -3500,18 +4078,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     const url = URL.createObjectURL(exportBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `reaction-${Date.now()}.webm`;
+    const platformSuffix = currentPlatform.id !== 'standard' ? `-${currentPlatform.id}` : '';
+    a.download = `reaction${platformSuffix}-${Date.now()}.webm`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
+  // --- Auto-download fallback ---
+
+  async function autoDownloadRecording(reason) {
+    try {
+      const exportBlob = await getExportBlob();
+      const url = URL.createObjectURL(exportBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      const platformSuffix = currentPlatform.id !== 'standard' ? `-${currentPlatform.id}` : '';
+      a.download = `reaction${platformSuffix}-${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      console.warn('[TubePilot RX] Auto-download failed:', e.message);
+    }
+    uploadError.textContent = reason + ' Recording auto-downloaded.';
+    uploadError.classList.remove('hidden');
+  }
+
   // --- Upload form toggle ---
 
   uploadToggleBtn.addEventListener('click', () => {
     const isHidden = uploadForm.classList.toggle('hidden');
-    uploadToggleBtn.textContent = isHidden ? 'Upload to YouTube' : 'Hide Upload Form';
+    const uploadLabel = currentPlatform.upload === 'youtube-short'
+      ? 'Upload as YouTube Short'
+      : 'Upload to YouTube';
+    uploadToggleBtn.textContent = isHidden ? uploadLabel : 'Hide Upload Form';
     if (!isHidden) {
       populateChannels();
       populateCategories();
@@ -3731,6 +4334,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    // Pre-flight quota check
+    try {
+      const quotaResp = await chrome.runtime.sendMessage({ type: 'GET_QUOTA_STATUS' });
+      if (quotaResp && quotaResp.uploadsRemaining <= 0) {
+        await autoDownloadRecording('YouTube API daily quota exceeded.');
+        return;
+      }
+    } catch (e) {
+      // Quota check failed — proceed with upload attempt
+    }
+
     // Build metadata
     const madeForKids = document.querySelector('input[name="upload-kids"]:checked')?.value === 'true';
     const metadata = {
@@ -3745,14 +4359,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     };
 
-    // Track quota
+    // Resolve channel name for history
     const channelsResp = await chrome.runtime.sendMessage({ type: 'GET_CONNECTED_CHANNELS' });
     const channelName = channelsResp?.channels?.[channelId]?.channelName || channelId;
-    chrome.runtime.sendMessage({
-      type: 'TRACK_UPLOAD_QUOTA',
-      channelId,
-      channelName
-    }).catch(() => {});
 
     // Show progress UI, disable form
     uploadProgress.classList.remove('hidden');
@@ -3790,6 +4399,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       uploadResult.classList.remove('hidden');
       uploadProgress.classList.add('hidden');
 
+      // Track quota after successful upload
+      chrome.runtime.sendMessage({
+        type: 'TRACK_UPLOAD_QUOTA',
+        channelId,
+        channelName
+      }).catch(() => {});
+
       // Save upload history
       saveUploadHistory({
         id: 'ul_' + Date.now().toString(36),
@@ -3804,8 +4420,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
     } catch (err) {
-      uploadError.textContent = err.message;
-      uploadError.classList.remove('hidden');
+      if (err.message.toLowerCase().includes('quota')) {
+        await autoDownloadRecording(err.message);
+      } else {
+        uploadError.textContent = err.message;
+        uploadError.classList.remove('hidden');
+      }
       uploadProgress.classList.add('hidden');
     } finally {
       uploadBtn.disabled = false;
@@ -3917,6 +4537,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentState !== RX_STATES.RECORDING && currentState !== RX_STATES.PAUSED) {
           playNextInQueue();
         }
+        break;
+
+      case RX_MESSAGES.VIDEO_DIMENSIONS:
+        sourceVideoWidth = message.videoWidth || 0;
+        sourceVideoHeight = message.videoHeight || 0;
+        console.log(`[TubePilot RX] Source video dimensions: ${sourceVideoWidth}x${sourceVideoHeight}`);
         break;
 
       case RX_MESSAGES.QUEUE_PLAY_VIDEO:
@@ -4172,8 +4798,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (bgBlurValueEl) bgBlurValueEl.textContent = bgBlurStrength;
     buildFeatherLUT(bgFeatherValue);
 
-    // BG mode buttons
-    document.querySelectorAll('.bg-mode-btn').forEach(b => {
+    // BG mode buttons (scoped to data-mode)
+    document.querySelectorAll('.bg-mode-btn[data-mode]').forEach(b => {
       b.classList.toggle('bg-mode-active', b.dataset.mode === bgRemovalMode);
     });
     if (bgRemovalMode === 'blur') {
@@ -4354,10 +4980,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
-    // Mode buttons
-    document.querySelectorAll('.bg-mode-btn').forEach(btn => {
+    // Mode buttons (BG removal — scoped to data-mode)
+    document.querySelectorAll('.bg-mode-btn[data-mode]').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.bg-mode-btn').forEach(b => b.classList.remove('bg-mode-active'));
+        document.querySelectorAll('.bg-mode-btn[data-mode]').forEach(b => b.classList.remove('bg-mode-active'));
         btn.classList.add('bg-mode-active');
         bgRemovalMode = btn.dataset.mode;
         if (bgRemovalMode === 'blur') {
@@ -4836,10 +5462,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   function captureThumbnail() {
     if (!outputVideo || !outputVideo.videoWidth) return;
     const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width = 1280;
-    thumbCanvas.height = 720;
+    const isPortraitThumb = currentPlatform.height > currentPlatform.width;
+    thumbCanvas.width = isPortraitThumb ? 720 : 1280;
+    thumbCanvas.height = isPortraitThumb ? 1280 : 720;
     const ctx = thumbCanvas.getContext('2d');
-    ctx.drawImage(outputVideo, 0, 0, 1280, 720);
+    ctx.drawImage(outputVideo, 0, 0, thumbCanvas.width, thumbCanvas.height);
     customThumbnailDataUrl = thumbCanvas.toDataURL('image/jpeg', 0.92);
 
     const preview = document.getElementById('thumbnail-preview');
@@ -5127,8 +5754,146 @@ document.addEventListener('DOMContentLoaded', async () => {
     const aiMetaBtn = document.getElementById('ai-meta-btn');
     if (aiMetaBtn) aiMetaBtn.addEventListener('click', generateAiMeta);
 
+    // GIF export
+    const gifEncodeBtn = document.getElementById('gif-encode-btn');
+    if (gifEncodeBtn) gifEncodeBtn.addEventListener('click', encodeGif);
+    const gifExportBtn = document.getElementById('gif-export-btn');
+    if (gifExportBtn) {
+      gifExportBtn.addEventListener('click', () => {
+        // Toggle GIF panel and activate button
+        const gifBtn = document.querySelector('.post-tool-btn[data-tool="gif"]');
+        if (gifBtn) gifBtn.click();
+      });
+    }
+
     // Init trim handle drag
     initTrimHandles();
+  }
+
+  // --- GIF Export ---
+
+  async function encodeGif() {
+    if (!lastRecordingBlob) return;
+
+    const gifEncodeBtn = document.getElementById('gif-encode-btn');
+    const gifStatus = document.getElementById('gif-status');
+    const gifProgress = document.getElementById('gif-progress');
+    const gifProgressFill = document.getElementById('gif-progress-fill');
+    const gifProgressText = document.getElementById('gif-progress-text');
+
+    const width = parseInt(document.getElementById('gif-width').value) || 480;
+    const fps = parseInt(document.getElementById('gif-fps').value) || 10;
+    const maxDuration = parseInt(document.getElementById('gif-max-duration').value) || 10;
+
+    // Calculate time range from trim state
+    const videoDuration = outputVideo.duration || 0;
+    if (videoDuration <= 0) {
+      gifStatus.textContent = 'No video loaded';
+      return;
+    }
+
+    const chunkCount = recordedChunks.length;
+    const effectiveTrimEnd = trimEndIdx < 0 ? chunkCount - 1 : trimEndIdx;
+    const startFrac = chunkCount > 0 ? trimStartIdx / chunkCount : 0;
+    const endFrac = chunkCount > 0 ? (effectiveTrimEnd + 1) / chunkCount : 1;
+    let startTime = startFrac * videoDuration;
+    let endTime = endFrac * videoDuration;
+
+    // Cap at maxDuration
+    if (endTime - startTime > maxDuration) {
+      endTime = startTime + maxDuration;
+    }
+
+    const totalFrames = Math.ceil((endTime - startTime) * fps);
+    if (totalFrames <= 0) {
+      gifStatus.textContent = 'Duration too short';
+      return;
+    }
+
+    // Calculate height from video aspect ratio
+    const vw = outputVideo.videoWidth || 1920;
+    const vh = outputVideo.videoHeight || 1080;
+    const height = Math.round(width * (vh / vw));
+
+    // Disable UI
+    gifEncodeBtn.disabled = true;
+    gifStatus.textContent = 'Capturing frames...';
+    gifProgress.classList.remove('hidden');
+    gifProgressFill.style.width = '0%';
+    gifProgressText.textContent = '0%';
+
+    // Temp canvas for frame capture
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    const gif = new GIF({
+      workers: 2,
+      quality: 10,
+      width: width,
+      height: height,
+      workerScript: chrome.runtime.getURL('lib/gif/gif.worker.js')
+    });
+
+    const frameDelay = 1000 / fps;
+
+    // Capture frames by seeking through video
+    try {
+      for (let i = 0; i < totalFrames; i++) {
+        const t = startTime + (i / fps);
+        outputVideo.currentTime = t;
+        await new Promise((resolve, reject) => {
+          const onSeeked = () => { outputVideo.removeEventListener('seeked', onSeeked); resolve(); };
+          outputVideo.addEventListener('seeked', onSeeked);
+          // Timeout fallback
+          setTimeout(() => { outputVideo.removeEventListener('seeked', onSeeked); resolve(); }, 500);
+        });
+
+        tempCtx.drawImage(outputVideo, 0, 0, width, height);
+        gif.addFrame(tempCtx, { copy: true, delay: frameDelay });
+
+        const capturePct = Math.round(((i + 1) / totalFrames) * 50);
+        gifProgressFill.style.width = capturePct + '%';
+        gifProgressText.textContent = capturePct + '%';
+        gifStatus.textContent = `Capturing frame ${i + 1}/${totalFrames}`;
+      }
+    } catch (err) {
+      gifStatus.textContent = 'Frame capture failed: ' + err.message;
+      gifEncodeBtn.disabled = false;
+      gifProgress.classList.add('hidden');
+      return;
+    }
+
+    // Encode
+    gifStatus.textContent = 'Encoding GIF...';
+
+    gif.on('progress', (p) => {
+      const pct = 50 + Math.round(p * 50);
+      gifProgressFill.style.width = pct + '%';
+      gifProgressText.textContent = pct + '%';
+    });
+
+    gif.on('finished', (blob) => {
+      // Auto-download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const platformSuffix = currentPlatform.id !== 'standard' ? `-${currentPlatform.id}` : '';
+      a.download = `reaction${platformSuffix}-${Date.now()}.gif`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      const sizeMB = (blob.size / (1024 * 1024)).toFixed(1);
+      gifStatus.textContent = `Done! ${sizeMB}MB — ${totalFrames} frames`;
+      gifProgressFill.style.width = '100%';
+      gifProgressText.textContent = '100%';
+      gifEncodeBtn.disabled = false;
+    });
+
+    gif.render();
   }
 
   // --- Captions toggle in Camera tab ---
