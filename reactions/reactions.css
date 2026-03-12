@@ -382,20 +382,23 @@ body {
 
 .sidebar-tab {
   flex: 1;
-  padding: 10px;
+  padding: 10px 4px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: #888;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
+  transition: font-size 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
 }
 
 .sidebar-tab.active {
   color: #cc0000;
   border-bottom-color: #cc0000;
+  font-size: 12px;
 }
 
 .sidebar-content {
@@ -404,10 +407,12 @@ body {
   padding: 12px;
 }
 #panel-camera,
+#panel-controls,
 #panel-style {
   scrollbar-width: none;
 }
 #panel-camera::-webkit-scrollbar,
+#panel-controls::-webkit-scrollbar,
 #panel-style::-webkit-scrollbar { display: none; }
 
 /* Device / form sections */
@@ -779,8 +784,11 @@ select:focus, input[type="text"]:focus {
   background: #1a1a1a;
   flex-shrink: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   max-height: 50vh;
+  scrollbar-width: none;
 }
+.sidebar-footer::-webkit-scrollbar { display: none; }
 
 /* Audio Dev Tools */
 .audio-dev-panel {
@@ -930,6 +938,33 @@ select:focus, input[type="text"]:focus {
   color: white;
 }
 
+/* Zoom mode buttons */
+.zoom-mode-btns {
+  display: flex;
+  gap: 6px;
+}
+.zoom-mode-btn {
+  flex: 1;
+  padding: 6px 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: #aaa;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.zoom-mode-btn:hover {
+  background: #333;
+  color: #f1f1f1;
+}
+.zoom-mode-btn.zoom-mode-active {
+  background: #cc0000;
+  border-color: #cc0000;
+  color: white;
+}
+
 /* Music capture */
 .music-capture-row {
   margin-top: 6px;
@@ -951,24 +986,17 @@ select:focus, input[type="text"]:focus {
   border-color: #666;
 }
 
-.btn-stop-music {
-  width: 28px;
-  height: 28px;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 4px;
-  color: #aaa;
-  font-size: 12px;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-.btn-stop-music:hover {
+#stop-music-btn:hover {
   background: #cc0000;
+  border-color: #cc0000;
   color: white;
+}
+
+.music-row {
+  gap: 4px !important;
+}
+.music-row label {
+  width: 40px !important;
 }
 
 .music-tab-select {
@@ -2048,6 +2076,59 @@ select:focus, input[type="text"]:focus {
 @keyframes timer-flash {
   0%, 100% { color: #ff6b6b; }
   50% { color: #ff0000; text-shadow: 0 0 8px rgba(255, 0, 0, 0.6); }
+}
+
+/* ====== TUTORIAL OVERLAY ====== */
+.tutorial-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  cursor: pointer;
+}
+.tutorial-spotlight {
+  position: absolute;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  transition: all 0.4s ease;
+  z-index: 1;
+}
+.tutorial-tooltip {
+  position: absolute;
+  background: #1a1a1a;
+  border: 1px solid #cc0000;
+  border-radius: 10px;
+  padding: 14px 18px;
+  max-width: 260px;
+  z-index: 2;
+  transition: all 0.4s ease;
+  pointer-events: none;
+}
+.tutorial-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+.tutorial-desc {
+  font-size: 12px;
+  color: #aaa;
+  line-height: 1.4;
+}
+.tutorial-progress {
+  margin-top: 8px;
+  display: flex;
+  gap: 5px;
+  justify-content: center;
+}
+.tutorial-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #444;
+  transition: background 0.3s;
+}
+.tutorial-dot.active {
+  background: #cc0000;
 }
 
 /* ====== UTILITY ====== */

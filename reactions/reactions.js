@@ -76,6 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const musicVolumeSlider = document.getElementById('music-volume-slider');
   const musicVolumeValue = document.getElementById('music-volume-value');
   const musicMuteBtn = document.getElementById('music-mute-btn');
+  const musicPlayPauseBtn = document.getElementById('music-play-pause-btn');
   const musicCaptureBtn = document.getElementById('music-capture-btn');
   const stopMusicBtn = document.getElementById('stop-music-btn');
   const musicRow = document.getElementById('music-row');
@@ -134,6 +135,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let pipBorderColor = RX_DEFAULTS.pipBorderColor;
   let pipBorderWidth = RX_DEFAULTS.pipBorderWidth;
   let pipCornerRadius = RX_DEFAULTS.pipCornerRadius;
+  let pipRoundPercent = 15; // 4-50, percentage of Math.min(w,h)
 
   // PiP interaction state
   let pipSelected = false;
@@ -337,8 +339,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   let webcamOnlyMode = false;
   let audioOnlyMode = false;
   let screenCaptureMode = false;
+  let screenCaptureTabId = null;
   let sideBySideSwapped = false;
   let sbsSplitPercent = 50;
+
+  // Zoom state
+  let zoomMode = 'off'; // 'off' | 'static' | 'follow'
+  let zoomLevel = 2.0;
+  let zoomCenterX = 0.5; // 0-1 normalized
+  let zoomCenterY = 0.5;
+  let zoomTargetX = 0.5;
+  let zoomTargetY = 0.5;
+  let zoomActive = false; // whether zoom is currently engaged (static click or follow on)
+
+  // Source crop (pixels trimmed from each edge of captured video)
+  let cropTop = 0, cropBottom = 0, cropLeft = 0, cropRight = 0;
 
   // Document PiP popout
   let pipWindow = null;
@@ -652,7 +667,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Screen capture mode ---
 
+  let screenCaptureStarting = false;
+
   async function startScreenCapture() {
+    if (screenCaptureStarting) {
+      console.log('[SCREEN CAPTURE] Already starting, ignoring duplicate call');
+      return;
+    }
+    screenCaptureStarting = true;
+
     // If already capturing YouTube, stop that first
     if (tabStream && !screenCaptureMode) {
       stopCurrentCapture();
@@ -736,8 +759,54 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Detect stream end (user stops sharing)
       tabStream.getVideoTracks()[0]?.addEventListener('ended', handleScreenCaptureEnded);
 
+      // Focus back to TubePilot tab
+      const reactionsTabFocus = await chrome.tabs.getCurrent();
+      if (reactionsTabFocus) {
+        chrome.tabs.update(reactionsTabFocus.id, { active: true });
+      }
+
+      // Inject mouse tracking into the captured tab (for zoom-follow)
+      try {
+        const scVideoTrack = tabStream.getVideoTracks()[0];
+        const scLabel = scVideoTrack?.label || '';
+        const allTabs = await chrome.tabs.query({});
+        const capturedTab = allTabs.find(t =>
+          t.id !== reactionsTabFocus?.id && t.title && scLabel.includes(t.title)
+        );
+        if (capturedTab) {
+          screenCaptureTabId = capturedTab.id;
+          await chrome.scripting.executeScript({
+            target: { tabId: capturedTab.id },
+            func: () => {
+              if (window.__tubepilotMouseTracker) return;
+              window.__tubepilotMouseTracker = true;
+              let rafPending = false;
+              document.addEventListener('mousemove', (e) => {
+                if (rafPending) return;
+                rafPending = true;
+                requestAnimationFrame(() => {
+                  rafPending = false;
+                  try {
+                    chrome.runtime.sendMessage({
+                      type: 'RX_YT_MOUSE_POSITION',
+                      nx: e.clientX / window.innerWidth,
+                      ny: e.clientY / window.innerHeight
+                    }).catch(() => {});
+                  } catch {}
+                });
+              });
+            }
+          });
+          console.log('[SCREEN CAPTURE] Mouse tracking injected into tab:', capturedTab.id);
+        }
+      } catch (e) {
+        console.warn('[SCREEN CAPTURE] Could not inject mouse tracking:', e.message);
+      }
+
       isFirstVideoLoad = false;
+      screenCaptureStarting = false;
     } catch (err) {
+      screenCaptureStarting = false;
       console.error('startScreenCapture error:', err.message);
       previewPlaceholder.innerHTML = '<span>Load a video to start</span>';
       if (!tabStream) previewPlaceholder.classList.remove('hidden');
@@ -746,6 +815,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (screenCaptureMode) {
         nowPlaying = playHistory.length > 0 ? playHistory.pop() : null;
         screenCaptureMode = false;
+        screenCaptureTabId = null;
       }
 
       // Clean up partial stream
@@ -788,6 +858,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     isFirstVideoLoad = true;
     screenCaptureMode = false;
+    screenCaptureTabId = null;
   }
 
   function handleScreenCaptureEnded() {
@@ -802,6 +873,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     tabStream = null;
     isFirstVideoLoad = true;
     screenCaptureMode = false;
+    screenCaptureTabId = null;
     nowPlaying = null;
 
     previewPlaceholder.classList.remove('hidden');
@@ -1639,11 +1711,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (animFrameId) cancelAnimationFrame(animFrameId);
 
     function draw(timestamp) {
+      // Smooth zoom follow
+      updateZoomLerp();
       // Run segmentation once per frame (shared by both canvases)
       runSegmentation(timestamp);
 
-      const recView = audioOnlyMode ? RX_VIEWS.VIDEO : recordingView;
-      const prevView = audioOnlyMode ? RX_VIEWS.VIDEO : currentView;
+      const recView = audioOnlyMode && !isPortraitMode() ? RX_VIEWS.VIDEO : recordingView;
+      const prevView = audioOnlyMode && !isPortraitMode() ? RX_VIEWS.VIDEO : currentView;
 
       // Both portrait-native and landscape use the same pattern —
       // portrait-specific rendering is handled inside drawCanvas() → drawPortraitScene()
@@ -1678,7 +1752,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else if (view === RX_VIEWS.VIDEO) {
       // Video only, no PiP
       if (tabVideo.readyState >= 2) {
-        ctx.drawImage(tabVideo, 0, 0, canvas.width, canvas.height);
+        const vw = tabVideo.videoWidth || canvas.width;
+        const vh = tabVideo.videoHeight || canvas.height;
+        const zr = getZoomedSourceRect(vw, vh);
+        ctx.drawImage(tabVideo, zr.sx, zr.sy, zr.sw, zr.sh, 0, 0, canvas.width, canvas.height);
       }
     } else {
       // FINAL — video + PiP or side-by-side
@@ -1783,6 +1860,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     return sourceVideoWidth > 0 && sourceVideoHeight > 0 && sourceVideoHeight > sourceVideoWidth;
   }
 
+  /**
+   * Compute source rect with crop + zoom applied.
+   * Returns { sx, sy, sw, sh } — the sub-region of the video to sample.
+   * Crop trims edges first, then zoom operates within the cropped area.
+   */
+  function getZoomedSourceRect(videoW, videoH) {
+    // Apply crop insets
+    const cx0 = cropLeft;
+    const cy0 = cropTop;
+    const cw = Math.max(1, videoW - cropLeft - cropRight);
+    const ch = Math.max(1, videoH - cropTop - cropBottom);
+
+    if (!zoomActive || zoomLevel <= 1) {
+      return { sx: cx0, sy: cy0, sw: cw, sh: ch };
+    }
+    // Zoom within the cropped region
+    const sw = cw / zoomLevel;
+    const sh = ch / zoomLevel;
+    const cx = Math.max(sw / 2, Math.min(zoomCenterX * cw, cw - sw / 2));
+    const cy = Math.max(sh / 2, Math.min(zoomCenterY * ch, ch - sh / 2));
+    return { sx: cx0 + cx - sw / 2, sy: cy0 + cy - sh / 2, sw, sh };
+  }
+
+  /**
+   * Lerp zoomCenter toward zoomTarget each frame (for smooth follow-mouse).
+   */
+  function updateZoomLerp() {
+    if (!zoomActive) return;
+    const lerpFactor = 0.12; // ~200ms to settle at 60fps
+    zoomCenterX += (zoomTargetX - zoomCenterX) * lerpFactor;
+    zoomCenterY += (zoomTargetY - zoomCenterY) * lerpFactor;
+  }
+
   function drawPortraitScene(ctx, canvas, view, isPreviewCanvas) {
     const frame = getPortraitFrame(canvas);
     const isLetterboxed = frame.w < canvas.width;
@@ -1802,17 +1912,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (sourceIsPortrait && tabVideo.readyState >= 2) {
       // Portrait source (e.g. YouTube Short) — crop center strip from pillarboxed capture
-      // The capture is 16:9 with the portrait video centered. Extract the center 9:16 strip.
       const capW = tabVideo.videoWidth || canvas.width;
       const capH = tabVideo.videoHeight || canvas.height;
-      const stripW = Math.round(capH * (9 / 16)); // width of actual content in capture
+      const stripW = Math.round(capH * (9 / 16));
       const stripX = Math.round((capW - stripW) / 2);
-      // Draw the cropped strip to fill the entire portrait frame
-      ctx.drawImage(tabVideo, stripX, 0, stripW, capH, frame.x, frame.y, frame.w, frame.h);
+      // Apply zoom within the portrait strip
+      const zr = getZoomedSourceRect(stripW, capH);
+      ctx.drawImage(tabVideo, stripX + zr.sx, zr.sy, zr.sw, zr.sh, frame.x, frame.y, frame.w, frame.h);
     } else {
       // Landscape source — blur/black background + centered 16:9 video
 
-      // Layer 1: Background fill
+      // Layer 1: Background fill (not zoomed — fills behind video)
       if (portraitBgMode === 'blur' && tabVideo.readyState >= 2) {
         ctx.save();
         ctx.translate(frame.x, frame.y);
@@ -1825,13 +1935,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         ctx.fillRect(frame.x, frame.y, frame.w, frame.h);
       }
 
-      // Layer 2: Sharp 16:9 video centered vertically
+      // Layer 2: Sharp 16:9 video centered vertically (zoom applies here)
       if (tabVideo.readyState >= 2) {
+        const vw = tabVideo.videoWidth || frame.w;
+        const vh = tabVideo.videoHeight || frame.h;
+        const zr = getZoomedSourceRect(vw, vh);
         const videoW = frame.w;
         const videoH = Math.round(videoW * (9 / 16));
         const videoX = frame.x;
         const videoY = frame.y + Math.round((frame.h - videoH) / 2);
-        ctx.drawImage(tabVideo, videoX, videoY, videoW, videoH);
+        ctx.drawImage(tabVideo, zr.sx, zr.sy, zr.sw, zr.sh, videoX, videoY, videoW, videoH);
       }
     }
 
@@ -1848,9 +1961,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const vr = calcVidRect(canvas);
 
+    const srcW = tabVideo.videoWidth || vr.w;
+    const srcH = tabVideo.videoHeight || vr.h;
+    const zr = getZoomedSourceRect(srcW, srcH);
+
     if (vr.fullCanvas) {
-      // Full canvas — direct drawImage, no clipping overhead
-      ctx.drawImage(tabVideo, 0, 0, canvas.width, canvas.height);
+      // Full canvas — direct drawImage
+      ctx.drawImage(tabVideo, zr.sx, zr.sy, zr.sw, zr.sh, 0, 0, canvas.width, canvas.height);
     } else {
       // Resized panel — clip to rect, cover-fit video
       ctx.save();
@@ -1858,14 +1975,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       ctx.rect(vr.x, vr.y, vr.w, vr.h);
       ctx.clip();
 
-      const vw = tabVideo.videoWidth || vr.w;
-      const vh = tabVideo.videoHeight || vr.h;
-      const scale = Math.max(vr.w / vw, vr.h / vh);
-      const sw = vw * scale;
-      const sh = vh * scale;
+      const scale = Math.max(vr.w / zr.sw, vr.h / zr.sh);
+      const sw = zr.sw * scale;
+      const sh = zr.sh * scale;
       const sx = vr.x + (vr.w - sw) / 2;
       const sy = vr.y + (vr.h - sh) / 2;
-      ctx.drawImage(tabVideo, sx, sy, sw, sh);
+      ctx.drawImage(tabVideo, zr.sx, zr.sy, zr.sw, zr.sh, sx, sy, sw, sh);
       ctx.restore();
 
       // Draw resize handles on preview when selected or hovered
@@ -1955,12 +2070,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (tabVideo.readyState >= 2) {
       const vw = tabVideo.videoWidth || videoW;
       const vh = tabVideo.videoHeight || h;
-      const scale = Math.max(videoW / vw, h / vh);
-      const sw = vw * scale;
-      const sh = vh * scale;
+      const zr = getZoomedSourceRect(vw, vh);
+      const scale = Math.max(videoW / zr.sw, h / zr.sh);
+      const sw = zr.sw * scale;
+      const sh = zr.sh * scale;
       const sx = videoX + (videoW - sw) / 2;
       const sy = (h - sh) / 2;
-      ctx.drawImage(tabVideo, sx, sy, sw, sh);
+      ctx.drawImage(tabVideo, zr.sx, zr.sy, zr.sw, zr.sh, sx, sy, sw, sh);
     } else {
       ctx.fillStyle = '#111';
       ctx.fillRect(videoX, 0, videoW, h);
@@ -2114,7 +2230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (pipShape === RX_PIP_SHAPES.CIRCLE) {
       ctx.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
     } else if (pipShape === RX_PIP_SHAPES.ROUNDED) {
-      const r = Math.round(Math.min(w, h) * 0.08);
+      const r = Math.round(Math.min(w, h) * (pipRoundPercent / 100));
       roundedRectPath(ctx, x, y, w, h, r);
       return; // roundedRectPath already calls beginPath
     } else {
@@ -2963,22 +3079,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function startMusicCapture() {
     try {
-      // 1. Show tab picker dropdown
-      const selectedTabId = await showMusicTabPicker();
-      if (!selectedTabId) return;
-
-      // 2. Mute the tab BEFORE capture (critical timing — prevents echo)
-      console.log('[MUSIC] Muting tab', selectedTabId);
-      await chrome.tabs.update(selectedTabId, { muted: true });
-      musicTabId = selectedTabId;
-
-      // 3. Brief pause, bring focus back for getDisplayMedia picker
-      await new Promise(r => setTimeout(r, 200));
-      const thisTab = await chrome.tabs.getCurrent();
-      if (thisTab) await chrome.tabs.update(thisTab.id, { active: true });
-      await new Promise(r => setTimeout(r, 200));
-
-      // 4. getDisplayMedia — user shares the same tab they selected
+      // 1. getDisplayMedia — user picks the tab directly in browser picker
       console.log('[MUSIC] Starting getDisplayMedia...');
       musicStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -2987,28 +3088,70 @@ document.addEventListener('DOMContentLoaded', async () => {
         selfBrowserSurface: 'exclude'
       });
 
-      // Discard video track (we only need audio)
+      // Read video track label (contains tab title) before discarding
+      const videoTrack = musicStream.getVideoTracks()[0];
+      const sharedTabLabel = videoTrack?.label || '';
       musicStream.getVideoTracks().forEach(t => t.stop());
 
       const audioTracks = musicStream.getAudioTracks();
-      console.log('[MUSIC] Audio tracks:', audioTracks.length);
+      console.log('[MUSIC] Audio tracks:', audioTracks.length, ', shared tab label:', sharedTabLabel);
       if (audioTracks.length === 0) {
         console.warn('[MUSIC] No audio tracks — user may not have checked "Share tab audio"');
         await stopMusicCapture();
         return;
       }
 
-      // 5. Connect to audio graph if it exists
-      if (audioCtx && audioCompressor) {
-        connectMusicToGraph();
+      // 2. Find and mute the shared tab
+      const tabs = await chrome.tabs.query({});
+      const reactionsTab = await chrome.tabs.getCurrent();
+      // Match video track label against tab titles (Chrome sets label to tab title)
+      const matchedTab = tabs.find(t =>
+        t.id !== reactionsTab?.id && t.title && sharedTabLabel.includes(t.title)
+      );
+      if (matchedTab) {
+        console.log('[MUSIC] Muting tab', matchedTab.id, '—', matchedTab.title);
+        await chrome.tabs.update(matchedTab.id, { muted: true });
+        musicTabId = matchedTab.id;
+      } else {
+        // Fallback: try matching audible tabs
+        const audibleTab = tabs.find(t => t.id !== reactionsTab?.id && t.audible);
+        if (audibleTab) {
+          console.log('[MUSIC] Muting audible tab (fallback)', audibleTab.id, '—', audibleTab.title);
+          await chrome.tabs.update(audibleTab.id, { muted: true });
+          musicTabId = audibleTab.id;
+        } else {
+          console.warn('[MUSIC] Could not identify shared tab for muting');
+        }
       }
 
-      // 6. Show music volume UI
+      // 3. Ensure audio graph exists, then connect music
+      if (!audioCtx || !audioCompressor) {
+        // No primary source yet — create a minimal audio graph for music playback
+        console.log('[MUSIC] No audio graph yet, creating minimal context for music');
+        audioCtx = new AudioContext({ sampleRate: 48000 });
+        audioDest = audioCtx.createMediaStreamDestination();
+        audioDest.channelCount = 2;
+        audioCompressor = audioCtx.createDynamicsCompressor();
+        audioCompressor.threshold.value = -12;
+        audioCompressor.knee.value = 10;
+        audioCompressor.ratio.value = 2;
+        audioCompressor.attack.value = 0.005;
+        audioCompressor.release.value = 0.2;
+        audioCompressor.connect(audioDest);
+      }
+      connectMusicToGraph();
+
+      // 4. Show music volume UI
       musicRow.classList.remove('hidden');
       musicCaptureBtn.textContent = '\uD83C\uDFB5 Change Music';
 
-      // 7. Handle stream end
+      // 5. Handle stream end
       audioTracks[0].addEventListener('ended', handleMusicEnded);
+
+      // 6. Focus back to TubePilot tab
+      if (reactionsTab) {
+        chrome.tabs.update(reactionsTab.id, { active: true });
+      }
 
       console.log('[MUSIC] Background music capture started');
     } catch (err) {
@@ -3026,6 +3169,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function stopMusicCapture() {
+    console.log('[MUSIC] stopMusicCapture called');
+    console.trace('[MUSIC] stopMusicCapture stack trace');
     // Disconnect audio nodes
     if (musicSourceNode) { try { musicSourceNode.disconnect(); } catch {} musicSourceNode = null; }
     if (musicGain) { try { musicGain.disconnect(); } catch {} musicGain = null; }
@@ -3045,8 +3190,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Reset UI
     musicRow.classList.add('hidden');
     musicMuted = false;
+    musicPlaying = true;
     musicMuteBtn.classList.remove('muted');
     musicMuteBtn.innerHTML = '\uD83D\uDD0A';
+    if (musicPlayPauseBtn) {
+      musicPlayPauseBtn.innerHTML = '\u23F8';
+      musicPlayPauseBtn.title = 'Pause music';
+    }
     musicVolumeSlider.value = 50;
     musicVolumeValue.textContent = '50%';
     musicCaptureBtn.textContent = '\uD83C\uDFB5 Add Background Music';
@@ -3056,6 +3206,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function handleMusicEnded() {
     console.log('[MUSIC] Stream ended (user stopped sharing or tab closed)');
+    console.trace('[MUSIC] handleMusicEnded stack trace');
     stopMusicCapture();
   }
 
@@ -3187,6 +3338,45 @@ document.addEventListener('DOMContentLoaded', async () => {
       musicMuteBtn.title = 'Mute music';
     }
   });
+
+  let musicPlaying = true; // tracks play state of music source tab
+
+  // Play/pause music — try scripting the source tab, fall back to toggling audio track
+  if (musicPlayPauseBtn) {
+    musicPlayPauseBtn.addEventListener('click', async () => {
+      if (!musicStream) return;
+      let toggled = false;
+
+      // Try scripting the source tab (works for YouTube and sites we have host permissions for)
+      if (musicTabId) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: musicTabId },
+            func: () => {
+              const media = document.querySelector('video') || document.querySelector('audio');
+              if (!media) return;
+              if (media.paused) media.play(); else media.pause();
+            }
+          });
+          toggled = true;
+        } catch (e) {
+          console.warn('[MUSIC] executeScript failed, falling back to track toggle:', e.message);
+        }
+      }
+
+      // Fallback: toggle the audio track enabled state
+      if (!toggled) {
+        const audioTrack = musicStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled;
+        }
+      }
+
+      musicPlaying = !musicPlaying;
+      musicPlayPauseBtn.innerHTML = musicPlaying ? '\u23F8' : '\u25B6';
+      musicPlayPauseBtn.title = musicPlaying ? 'Pause music' : 'Play music';
+    });
+  }
 
   musicCaptureBtn.addEventListener('click', () => startMusicCapture());
   stopMusicBtn.addEventListener('click', () => stopMusicCapture());
@@ -4545,6 +4735,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log(`[TubePilot RX] Source video dimensions: ${sourceVideoWidth}x${sourceVideoHeight}`);
         break;
 
+      case RX_MESSAGES.MOUSE_POSITION:
+        // Remote mouse tracking for zoom-follow (from YouTube embed or injected script)
+        if (zoomMode === 'follow' && zoomActive) {
+          zoomTargetX = message.nx;
+          zoomTargetY = message.ny;
+        }
+        break;
+
       case RX_MESSAGES.QUEUE_PLAY_VIDEO:
         if (message.videoObj) {
           addToQueueOrPlay(message.videoObj);
@@ -4571,6 +4769,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (audioOnlyToggle) {
     audioOnlyToggle.addEventListener('change', () => {
       audioOnlyMode = audioOnlyToggle.checked;
+      console.log('[AUDIO-ONLY] toggled:', audioOnlyMode);
+      console.log('[AUDIO-ONLY]   musicStream:', !!musicStream, ', musicStream tracks:', musicStream?.getAudioTracks().map(t => `${t.label} readyState=${t.readyState} enabled=${t.enabled}`));
+      console.log('[AUDIO-ONLY]   musicSourceNode:', !!musicSourceNode, ', musicGain:', !!musicGain);
+      console.log('[AUDIO-ONLY]   audioCtx:', !!audioCtx, ', state:', audioCtx?.state, ', audioCompressor:', !!audioCompressor);
       // Dim/enable cam controls
       if (camControlsSection) {
         camControlsSection.style.opacity = audioOnlyMode ? '0.35' : '';
@@ -4578,15 +4780,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       // Stop cam if switching to audio-only mid-session
       if (audioOnlyMode && camStream) {
+        console.log('[AUDIO-ONLY]   stopping camStream tracks:', camStream.getTracks().map(t => `${t.kind}:${t.label} readyState=${t.readyState}`));
         camStream.getTracks().forEach(t => t.stop());
         camStream = null;
-        stopMicMeter();
         camVideo.srcObject = null;
+        // Restart lightweight mic preview so meter keeps working
+        startMicPreview(micSelect.value);
       }
       // Restart cam if switching back and a video is loaded
       if (!audioOnlyMode && !camStream && tabStream) {
         startCamStream();
       }
+      // Log music state after toggle
+      setTimeout(() => {
+        console.log('[AUDIO-ONLY] after settle — musicStream:', !!musicStream, ', tracks:', musicStream?.getAudioTracks().map(t => `readyState=${t.readyState} enabled=${t.enabled}`));
+        console.log('[AUDIO-ONLY] after settle — audioCtx state:', audioCtx?.state);
+      }, 500);
     });
   }
 
@@ -4734,6 +4943,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           pipShape,
           pipBorderColor,
           pipBorderWidth,
+          pipRoundPercent,
           sbsSplitPercent,
           vidSizePercent,
           bgRemovalEnabled,
@@ -4755,6 +4965,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (prefs.pipShape) pipShape = prefs.pipShape;
     if (prefs.pipBorderColor != null) pipBorderColor = prefs.pipBorderColor;
     if (prefs.pipBorderWidth != null) pipBorderWidth = prefs.pipBorderWidth;
+    if (prefs.pipRoundPercent != null) pipRoundPercent = prefs.pipRoundPercent;
     if (prefs.pipSizePercent != null) pipSizePercent = prefs.pipSizePercent;
     if (prefs.sbsSplitPercent != null) sbsSplitPercent = prefs.sbsSplitPercent;
     if (prefs.vidSizePercent != null) vidSizePercent = prefs.vidSizePercent;
@@ -4783,6 +4994,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const borderValue = document.getElementById('border-width-value');
     if (borderSlider) borderSlider.value = pipBorderWidth;
     if (borderValue) borderValue.textContent = pipBorderWidth + 'px';
+
+    // Corner radius slider
+    const cornerSlider = document.getElementById('corner-radius-slider');
+    const cornerValue = document.getElementById('corner-radius-value');
+    const cornerRow = document.getElementById('corner-radius-row');
+    if (cornerSlider) cornerSlider.value = pipRoundPercent;
+    if (cornerValue) cornerValue.textContent = pipRoundPercent + '%';
+    if (cornerRow) cornerRow.classList.toggle('hidden', pipShape !== RX_PIP_SHAPES.ROUNDED);
 
     // BG removal sub-options
     const bgFeatherSlider = document.getElementById('bg-feather-slider');
@@ -4858,9 +5077,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         if ((oldShape === RX_PIP_SHAPES.CIRCLE) !== (pipShape === RX_PIP_SHAPES.CIRCLE)) {
           recenterPipOnShapeChange(oldShape);
         }
+        // Show/hide corner radius slider
+        const cornerRow = document.getElementById('corner-radius-row');
+        if (cornerRow) cornerRow.classList.toggle('hidden', pipShape !== RX_PIP_SHAPES.ROUNDED);
         saveStylePrefs();
       });
     });
+
+    // Corner radius slider
+    const cornerSlider = document.getElementById('corner-radius-slider');
+    const cornerValue = document.getElementById('corner-radius-value');
+    if (cornerSlider) {
+      cornerSlider.addEventListener('input', () => {
+        pipRoundPercent = parseInt(cornerSlider.value);
+        cornerValue.textContent = pipRoundPercent + '%';
+        saveStylePrefs();
+      });
+    }
 
     // Border color swatches
     document.querySelectorAll('.color-swatch').forEach(swatch => {
@@ -5067,6 +5300,183 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (panel) panel.classList.remove('panel-hidden');
     });
   });
+
+  // ============================================================
+  // Zoom controls
+  // ============================================================
+
+  const zoomLevelSlider = document.getElementById('zoom-level-slider');
+  const zoomLevelValue = document.getElementById('zoom-level-value');
+
+  function setZoomMode(mode) {
+    zoomMode = mode;
+    zoomActive = mode !== 'off';
+    if (!zoomActive) {
+      zoomCenterX = 0.5;
+      zoomCenterY = 0.5;
+      zoomTargetX = 0.5;
+      zoomTargetY = 0.5;
+    }
+    document.querySelectorAll('.zoom-mode-btn').forEach(b => {
+      b.classList.toggle('zoom-mode-active', b.dataset.zoom === mode);
+    });
+  }
+
+  // Mode buttons
+  document.querySelectorAll('.zoom-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => setZoomMode(btn.dataset.zoom));
+  });
+
+  // Zoom level slider
+  if (zoomLevelSlider) {
+    zoomLevelSlider.addEventListener('input', () => {
+      zoomLevel = parseInt(zoomLevelSlider.value) / 100;
+      zoomLevelValue.textContent = zoomLevel.toFixed(1) + 'x';
+    });
+  }
+
+  // Static zoom: click to zoom in/out, drag to pan while zoomed
+  let zoomDragStartX = 0, zoomDragStartY = 0;
+  let zoomDragging = false;
+  let zoomWasDrag = false;
+
+  previewCanvas.addEventListener('mousedown', (e) => {
+    if (zoomMode !== 'static') return;
+    if (pipDragging || pipResizing || vidDragging || vidResizing) return;
+    if (!zoomActive) return; // click-to-zoom-in handled below
+    // Start potential pan drag
+    zoomDragStartX = e.clientX;
+    zoomDragStartY = e.clientY;
+    zoomDragging = true;
+    zoomWasDrag = false;
+    previewCanvas.style.cursor = 'grabbing';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!zoomDragging) {
+      // Follow-mouse mode
+      if (zoomMode === 'follow' && zoomActive) {
+        const rect = previewCanvas.getBoundingClientRect();
+        zoomTargetX = (e.clientX - rect.left) / rect.width;
+        zoomTargetY = (e.clientY - rect.top) / rect.height;
+      }
+      return;
+    }
+    const dx = e.clientX - zoomDragStartX;
+    const dy = e.clientY - zoomDragStartY;
+    if (!zoomWasDrag && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+      zoomWasDrag = true;
+    }
+    if (zoomWasDrag) {
+      const rect = previewCanvas.getBoundingClientRect();
+      // Convert pixel delta to normalized coords, scaled by zoom level
+      const ndx = dx / rect.width / zoomLevel;
+      const ndy = dy / rect.height / zoomLevel;
+      zoomTargetX = Math.max(0, Math.min(1, zoomCenterX - ndx));
+      zoomTargetY = Math.max(0, Math.min(1, zoomCenterY - ndy));
+      zoomDragStartX = e.clientX;
+      zoomDragStartY = e.clientY;
+      // Snap center immediately for responsive panning
+      zoomCenterX = zoomTargetX;
+      zoomCenterY = zoomTargetY;
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (zoomDragging) {
+      zoomDragging = false;
+      previewCanvas.style.cursor = zoomActive ? 'grab' : '';
+      if (zoomWasDrag) return; // was a pan, don't toggle
+    }
+  });
+
+  // Click to zoom in or zoom out (only fires if not a drag)
+  previewCanvas.addEventListener('click', (e) => {
+    if (zoomMode !== 'static') return;
+    if (pipDragging || pipResizing || vidDragging || vidResizing) return;
+    if (zoomWasDrag) { zoomWasDrag = false; return; }
+    const rect = previewCanvas.getBoundingClientRect();
+    const nx = (e.clientX - rect.left) / rect.width;
+    const ny = (e.clientY - rect.top) / rect.height;
+    if (zoomActive) {
+      // Click while zoomed = zoom out
+      zoomActive = false;
+      zoomCenterX = 0.5;
+      zoomCenterY = 0.5;
+      zoomTargetX = 0.5;
+      zoomTargetY = 0.5;
+      previewCanvas.style.cursor = '';
+    } else {
+      // Click to zoom in at this point
+      zoomActive = true;
+      zoomTargetX = nx;
+      zoomTargetY = ny;
+      zoomCenterX = nx;
+      zoomCenterY = ny;
+      previewCanvas.style.cursor = 'grab';
+    }
+  });
+
+  // Scroll wheel to adjust zoom level on preview
+  previewCanvas.addEventListener('wheel', (e) => {
+    if (zoomMode === 'off') return;
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -30 : 30;
+    const newVal = Math.max(150, Math.min(400, parseInt(zoomLevelSlider.value) + delta));
+    zoomLevelSlider.value = newVal;
+    zoomLevel = newVal / 100;
+    zoomLevelValue.textContent = zoomLevel.toFixed(1) + 'x';
+  }, { passive: false });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown', (e) => {
+    // Don't trigger when typing in inputs
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+    if (e.key === 'z' || e.key === 'Z') {
+      setZoomMode(zoomMode === 'static' ? 'off' : 'static');
+    } else if (e.key === 'f' || e.key === 'F') {
+      setZoomMode(zoomMode === 'follow' ? 'off' : 'follow');
+    } else if (e.key === 'Escape' && zoomMode !== 'off') {
+      setZoomMode('off');
+    }
+  });
+
+  // Crop sliders
+  const cropSliders = [
+    { id: 'crop-top-slider', valId: 'crop-top-value', prop: 'cropTop' },
+    { id: 'crop-bottom-slider', valId: 'crop-bottom-value', prop: 'cropBottom' },
+    { id: 'crop-left-slider', valId: 'crop-left-value', prop: 'cropLeft' },
+    { id: 'crop-right-slider', valId: 'crop-right-value', prop: 'cropRight' }
+  ];
+  const cropVars = { cropTop: 0, cropBottom: 0, cropLeft: 0, cropRight: 0 };
+
+  cropSliders.forEach(({ id, valId, prop }) => {
+    const slider = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    if (slider) {
+      slider.addEventListener('input', () => {
+        const v = parseInt(slider.value);
+        if (prop === 'cropTop') cropTop = v;
+        else if (prop === 'cropBottom') cropBottom = v;
+        else if (prop === 'cropLeft') cropLeft = v;
+        else if (prop === 'cropRight') cropRight = v;
+        if (valEl) valEl.textContent = v + 'px';
+      });
+    }
+  });
+
+  const cropResetBtn = document.getElementById('crop-reset-btn');
+  if (cropResetBtn) {
+    cropResetBtn.addEventListener('click', () => {
+      cropTop = 0; cropBottom = 0; cropLeft = 0; cropRight = 0;
+      cropSliders.forEach(({ id, valId }) => {
+        const slider = document.getElementById(id);
+        const valEl = document.getElementById(valId);
+        if (slider) slider.value = 0;
+        if (valEl) valEl.textContent = '0px';
+      });
+    });
+  }
 
   // ============================================================
   // Utilities
@@ -6008,5 +6418,111 @@ document.addEventListener('DOMContentLoaded', async () => {
       setState(stateResp.state);
     }
   } catch {}
+
+  // ============================================================
+  // Tutorial
+  // ============================================================
+
+  const TUTORIAL_STORAGE_KEY = 'tubepilot_rx_tutorial_seen';
+  const tutorialSteps = [
+    { selector: '.sidebar-tab[data-panel="queue"]', title: 'Queue', desc: 'Find videos to react to. Search YouTube or paste a URL.', pos: 'below' },
+    { selector: '.sidebar-tab[data-panel="camera"]', title: 'Camera', desc: 'Connect your camera, mic, and audio devices.', pos: 'below' },
+    { selector: '.sidebar-tab[data-panel="controls"]', title: 'Controls', desc: 'Live features like zoom to enhance your recording.', pos: 'below' },
+    { selector: '.sidebar-tab[data-panel="style"]', title: 'Style', desc: 'Customize your webcam shape, border, size, and layout.', pos: 'below' },
+    { selector: '#music-capture-btn', title: 'Background Music', desc: 'Add background music from any browser tab.', pos: 'above' },
+    { selector: '#record-btn', title: 'Record', desc: "You're ready! Hit Record to start your reaction.", pos: 'below' }
+  ];
+
+  const tutorialOverlay = document.getElementById('tutorial-overlay');
+  const tutorialSpotlight = document.getElementById('tutorial-spotlight');
+  const tutorialTooltip = document.getElementById('tutorial-tooltip');
+  const tutorialTitle = document.getElementById('tutorial-title');
+  const tutorialDesc = document.getElementById('tutorial-desc');
+  const tutorialProgress = document.getElementById('tutorial-progress');
+  let tutorialStep = 0;
+  let tutorialTimer = null;
+
+  function buildProgressDots() {
+    tutorialProgress.innerHTML = '';
+    tutorialSteps.forEach((_, i) => {
+      const dot = document.createElement('span');
+      dot.className = 'tutorial-dot' + (i === tutorialStep ? ' active' : '');
+      tutorialProgress.appendChild(dot);
+    });
+  }
+
+  function showTutorialStep() {
+    if (tutorialStep >= tutorialSteps.length) {
+      endTutorial();
+      return;
+    }
+    const step = tutorialSteps[tutorialStep];
+    const el = document.querySelector(step.selector);
+    if (!el) { tutorialStep++; showTutorialStep(); return; }
+
+    const rect = el.getBoundingClientRect();
+    const pad = 6;
+
+    // Position spotlight
+    tutorialSpotlight.style.left = (rect.left - pad) + 'px';
+    tutorialSpotlight.style.top = (rect.top - pad) + 'px';
+    tutorialSpotlight.style.width = (rect.width + pad * 2) + 'px';
+    tutorialSpotlight.style.height = (rect.height + pad * 2) + 'px';
+
+    // Content
+    tutorialTitle.textContent = step.title;
+    tutorialDesc.textContent = step.desc;
+    buildProgressDots();
+
+    // Position tooltip
+    const ttWidth = 260;
+    let ttLeft = rect.left + rect.width / 2 - ttWidth / 2;
+    ttLeft = Math.max(10, Math.min(window.innerWidth - ttWidth - 10, ttLeft));
+    tutorialTooltip.style.left = ttLeft + 'px';
+    tutorialTooltip.style.width = ttWidth + 'px';
+
+    if (step.pos === 'above') {
+      tutorialTooltip.style.top = 'auto';
+      tutorialTooltip.style.bottom = (window.innerHeight - rect.top + pad + 10) + 'px';
+    } else {
+      tutorialTooltip.style.top = (rect.bottom + pad + 10) + 'px';
+      tutorialTooltip.style.bottom = 'auto';
+    }
+
+    // Auto-advance
+    tutorialTimer = setTimeout(() => {
+      tutorialStep++;
+      showTutorialStep();
+    }, 2500);
+  }
+
+  function startTutorial() {
+    tutorialStep = 0;
+    tutorialOverlay.classList.remove('hidden');
+    showTutorialStep();
+  }
+
+  function endTutorial() {
+    clearTimeout(tutorialTimer);
+    tutorialOverlay.classList.add('hidden');
+    chrome.storage.local.set({ [TUTORIAL_STORAGE_KEY]: true });
+  }
+
+  // Click anywhere to dismiss
+  tutorialOverlay.addEventListener('click', () => endTutorial());
+
+  // Replay button
+  const tutorialBtn = document.getElementById('tutorial-btn');
+  if (tutorialBtn) {
+    tutorialBtn.addEventListener('click', () => startTutorial());
+  }
+
+  // Auto-start on first visit
+  chrome.storage.local.get(TUTORIAL_STORAGE_KEY).then(result => {
+    if (!result[TUTORIAL_STORAGE_KEY]) {
+      // Small delay to let the page layout settle
+      setTimeout(() => startTutorial(), 600);
+    }
+  });
 
 });

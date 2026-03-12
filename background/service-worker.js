@@ -367,6 +367,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       break;
 
+    case RX_MESSAGES.YT_MOUSE_POSITION:
+      // Forward mouse position from content script to reactions tab
+      if (rxReactionsTabId) {
+        chrome.tabs.sendMessage(rxReactionsTabId, {
+          type: RX_MESSAGES.MOUSE_POSITION,
+          nx: message.nx,
+          ny: message.ny
+        }).catch(() => {});
+      }
+      break;
+
     case RX_MESSAGES.YT_VIDEO_DIMENSIONS:
       // Forward video dimensions from content script to reactions tab
       if (rxReactionsTabId) {

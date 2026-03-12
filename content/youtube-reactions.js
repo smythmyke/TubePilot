@@ -141,6 +141,23 @@
     }
   });
 
+  // Mouse tracking for zoom-follow (throttled to ~30fps via rAF)
+  let mouseRafPending = false;
+  document.addEventListener('mousemove', (e) => {
+    if (!active || mouseRafPending) return;
+    mouseRafPending = true;
+    requestAnimationFrame(() => {
+      mouseRafPending = false;
+      try {
+        chrome.runtime.sendMessage({
+          type: RX_MESSAGES.YT_MOUSE_POSITION,
+          nx: e.clientX / window.innerWidth,
+          ny: e.clientY / window.innerHeight
+        }).catch(() => {});
+      } catch {}
+    });
+  });
+
   // YouTube SPA navigation — re-acquire <video> element + re-inject cleanup CSS
   document.addEventListener('yt-navigate-finish', () => {
     if (active) {

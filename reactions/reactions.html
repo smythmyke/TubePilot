@@ -35,6 +35,7 @@
       <button class="btn btn-pause btn-sm" id="pause-btn" disabled>Pause</button>
       <button class="btn btn-stop btn-sm" id="stop-btn" disabled>Stop</button>
       <button class="btn btn-sm btn-popout" id="popout-btn" disabled>Pop Out</button>
+      <button class="btn btn-sm" id="tutorial-btn" title="Show tutorial" style="margin-left:auto;opacity:0.5;font-size:11px">?</button>
     </div>
   </div>
 
@@ -87,6 +88,7 @@
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-panel="queue">Queue</button>
         <button class="sidebar-tab" data-panel="camera">Camera</button>
+        <button class="sidebar-tab" data-panel="controls">Controls</button>
         <button class="sidebar-tab" data-panel="style">Style</button>
       </div>
 
@@ -191,6 +193,54 @@
 
       </div>
 
+      <!-- ====== CONTROLS TAB ====== -->
+      <div class="sidebar-content panel-hidden" id="panel-controls">
+        <div class="device-section">
+          <h3>Zoom</h3>
+          <div class="zoom-mode-btns">
+            <button class="zoom-mode-btn zoom-mode-active" data-zoom="off" title="No zoom">Off</button>
+            <button class="zoom-mode-btn" data-zoom="static" title="Click to zoom (Z)">Static</button>
+            <button class="zoom-mode-btn" data-zoom="follow" title="Follow mouse (F)">Follow</button>
+          </div>
+          <span class="style-hint">Static: click preview to zoom. Follow: zoom tracks your cursor.</span>
+        </div>
+
+        <div class="device-section">
+          <div class="slider-row">
+            <label>Zoom</label>
+            <input type="range" id="zoom-level-slider" min="150" max="400" value="200" step="10">
+            <span class="slider-val" id="zoom-level-value">2.0x</span>
+          </div>
+          <span class="style-hint">Scroll wheel on preview to adjust. Keys: Z (static), F (follow), Esc (reset).</span>
+        </div>
+
+        <div class="device-section">
+          <h3>Crop</h3>
+          <span class="style-hint">Trim edges of the captured source to remove browser chrome, sharing bars, etc.</span>
+          <div class="slider-row" style="margin-top:8px">
+            <label>Top</label>
+            <input type="range" id="crop-top-slider" min="0" max="300" value="0" step="5">
+            <span class="slider-val" id="crop-top-value">0px</span>
+          </div>
+          <div class="slider-row">
+            <label>Bottom</label>
+            <input type="range" id="crop-bottom-slider" min="0" max="300" value="0" step="5">
+            <span class="slider-val" id="crop-bottom-value">0px</span>
+          </div>
+          <div class="slider-row">
+            <label>Left</label>
+            <input type="range" id="crop-left-slider" min="0" max="300" value="0" step="5">
+            <span class="slider-val" id="crop-left-value">0px</span>
+          </div>
+          <div class="slider-row">
+            <label>Right</label>
+            <input type="range" id="crop-right-slider" min="0" max="300" value="0" step="5">
+            <span class="slider-val" id="crop-right-value">0px</span>
+          </div>
+          <button class="btn btn-sm" id="crop-reset-btn" style="margin-top:4px;width:100%;font-size:11px">Reset Crop</button>
+        </div>
+      </div>
+
       <!-- ====== STYLE TAB ====== -->
       <div class="sidebar-content panel-hidden" id="panel-style">
         <div class="device-section">
@@ -247,6 +297,11 @@
             <button class="shape-btn" data-shape="circle" title="Circle">
               <span class="shape-icon shape-icon-circle"></span>
             </button>
+          </div>
+          <div class="slider-row hidden" id="corner-radius-row" style="margin-top:8px">
+            <label>Roundness</label>
+            <input type="range" id="corner-radius-slider" min="4" max="50" value="15" step="1">
+            <span class="slider-val" id="corner-radius-value">15%</span>
           </div>
         </div>
 
@@ -361,10 +416,11 @@
         <!-- Music volume (shown when music active) -->
         <div class="slider-row music-row hidden" id="music-row">
           <label>Music</label>
+          <button class="mute-btn" id="music-play-pause-btn" title="Pause music">&#x23F8;</button>
+          <button class="mute-btn" id="stop-music-btn" title="Stop music">&#x2715;</button>
           <input type="range" id="music-volume-slider" min="0" max="100" value="50" step="1">
           <span class="slider-val" id="music-volume-value">50%</span>
           <button class="mute-btn" id="music-mute-btn" title="Mute music">&#x1F50A;</button>
-          <button class="btn-stop-music" id="stop-music-btn" title="Stop music">&#x2715;</button>
         </div>
 
         <!-- Music capture button -->
@@ -372,8 +428,8 @@
           <button class="btn-music-capture" id="music-capture-btn">&#x1F3B5; Add Background Music</button>
         </div>
 
-        <!-- Audio Dev Tools (collapsible) -->
-        <div class="audio-dev-panel">
+        <!-- Audio Dev Tools (collapsible, hidden for now) -->
+        <div class="audio-dev-panel hidden">
           <div class="audio-dev-header" id="audio-dev-toggle">
             <span class="audio-dev-chevron" id="audio-dev-chevron">&#x25B6;</span>
             <span>Audio Dev Tools</span>
@@ -676,6 +732,16 @@
   <canvas id="recording-canvas" width="1920" height="1080" style="display:none;"></canvas>
 
   <script src="../lib/gif/gif.js"></script>
+  <!-- Tutorial overlay -->
+  <div id="tutorial-overlay" class="tutorial-overlay hidden">
+    <div class="tutorial-spotlight" id="tutorial-spotlight"></div>
+    <div class="tutorial-tooltip" id="tutorial-tooltip">
+      <div class="tutorial-title" id="tutorial-title"></div>
+      <div class="tutorial-desc" id="tutorial-desc"></div>
+      <div class="tutorial-progress" id="tutorial-progress"></div>
+    </div>
+  </div>
+
   <script src="../config.js"></script>
   <script src="../services/reactions-state.js"></script>
   <script src="../services/queue-storage.js"></script>
